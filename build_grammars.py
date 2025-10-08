@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 import sys
+import voyageai
 from pathlib import Path
 from typing import List, Dict
 from tree_sitter_language_pack import get_language, get_parser
 
-# ---------- helpers ----------
+# -------- Voyage client --------
+try:
+    voyage_ai = voyageai.Client()  # reads VOYAGE_API_KEY from env
+except Exception as e:
+    print("Voyage AI client init failed (set VOYAGE_API_KEY):", e)
+    sys.exit(1)
+
+# -------- helpers --------
 def load_bytes(path: Path) -> bytes:
     try:
         return path.read_bytes()
@@ -12,91 +20,89 @@ def load_bytes(path: Path) -> bytes:
         print(f"[error] File not found: {path}")
         sys.exit(1)
 
-def decode_slice(buf: bytes, node) -> str:
-    return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
-
-def print_items(header: str, items: List[Dict]):
-    print(header)
-    for it in items:
-        print(f"{it['kind']}: {it['name']} (lines {it['start_line']}-{it['end_line']})")
-        print(it["text"].strip(), "\n")
-
-def detect_lang_from_ext(path: Path) -> str | None:
+def detect_lang(path: Path) -> str | None:
     ext = path.suffix.lower()
-    if ext == ".py": return "python"
-    if ext == ".java": return "java"
+    if ext == ".py":
+        return "python"
+    if ext == ".java":
+        return "java"
     return None
 
-# ---------- extraction ----------
-def extract_python_functions(code: bytes) -> List[Dict]:
-    L = get_language("python")
-    P = get_parser("python")
-    tree = P.parse(code)
+def slice_text(buf: bytes, node) -> str:
+    return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+
+# -------- extraction --------
+def extract_code_elements(path: Path) -> List[Dict]:
+    lang = detect_lang(path)
+    if not lang:
+        print(f"[error] Unsupported file type: {path} (expected .py or .java)")
+        sys.exit(2)
+
+    language = get_language(lang)
+    parser = get_parser(lang)
+    buf = load_bytes(path)
+    tree = parser.parse(buf)
     root = tree.root_node
 
-    q = L.query(r"(function_definition) @decl")
-    items = []
-    for _, caps in q.matches(root):  # 0.23.x returns (pattern_idx, {cap: [nodes...]})
-        decls = caps.get("decl") or caps.get(b"decl") or []
-        if not decls: continue
+    if lang == "python":
+        # capture whole function declarations; get name from field
+        query = language.query(r"(function_definition) @decl")
+        kind_map = {"function_definition": "function"}
+    else:  # java
+        query = language.query(r"""
+          (method_declaration) @decl
+          (constructor_declaration) @decl
+        """)
+        kind_map = {
+            "method_declaration": "method",
+            "constructor_declaration": "constructor",
+        }
+
+    items: List[Dict] = []
+    for _, capdict in query.matches(root):  # 0.23.x API
+        decls = capdict.get("decl") or capdict.get(b"decl") or []
+        if not decls:
+            continue
         d = decls[0]
         name_node = d.child_by_field_name("name")
-        name = decode_slice(code, name_node) if name_node else "<no-name>"
+        name = slice_text(buf, name_node) if name_node else "<no-name>"
         items.append({
             "name": name,
-            "kind": "function",
+            "kind": kind_map.get(d.type, d.type),
             "start_line": d.start_point[0] + 1,
             "end_line": d.end_point[0] + 1,
-            "text": decode_slice(code, d),
+            "text": slice_text(buf, d),
         })
     return items
 
-def extract_java_methods(code: bytes) -> List[Dict]:
-    L = get_language("java")
-    P = get_parser("java")
-    tree = P.parse(code)
-    root = tree.root_node
-
-    q = L.query(r"""
-      (method_declaration) @decl
-      (constructor_declaration) @decl
-    """)
-    items = []
-    for _, caps in q.matches(root):
-        decls = caps.get("decl") or caps.get(b"decl") or []
-        if not decls: continue
-        d = decls[0]
-        name_node = d.child_by_field_name("name")
-        name = decode_slice(code, name_node) if name_node else "<no-name>"
-        kind = "method" if d.type == "method_declaration" else "constructor"
-        items.append({
-            "name": name,
-            "kind": kind,
-            "start_line": d.start_point[0] + 1,
-            "end_line": d.end_point[0] + 1,
-            "text": decode_slice(code, d),
-        })
-    return items
-
-# ---------- main ----------
+# -------- main --------
 def main():
     if len(sys.argv) != 2:
         print("Usage: python3 build_grammars.py <path-to-file(.py|.java)>")
-        sys.exit(2)
-
-    target = Path(sys.argv[1])
-    code = load_bytes(target)
-    lang = detect_lang_from_ext(target)
-    if not lang:
-        print(f"[error] Unsupported file type: {target} (expected .py or .java)")
         sys.exit(3)
 
-    if lang == "python":
-        items = extract_python_functions(code)
-        print_items(f"--- Found in Python Code ({target}) ---", items)
-    else:
-        items = extract_java_methods(code)
-        print_items(f"--- Found in Java Code ({target}) ---", items)
+    target = Path(sys.argv[1])
+    elements = extract_code_elements(target)
+
+    if not elements:
+        print(f"No functions/methods found in {target}.")
+        return
+
+    print(f"--- Found {len(elements)} code elements in {target} ---")
+    for it in elements:
+        print("-" * 20)
+        print(f"{it['kind']}: {it['name']} (lines {it['start_line']}-{it['end_line']})")
+        print(it["text"].strip())
+
+    print("\n--- Getting embeddings from Voyage AI (voyage-code-2) ---")
+    try:
+        payloads = [it["text"] for it in elements]
+        result = voyage_ai.embed(payloads, model="voyage-code-2", input_type="document")
+        print(f"Successfully received {len(result.embeddings)} embeddings.")
+        for i, emb in enumerate(result.embeddings, 1):
+            print(f"Embedding {i}: dim={len(emb)}, preview={emb[:4]}")
+    except Exception as e:
+        print("Voyage embedding error:", e)
 
 if __name__ == "__main__":
     main()
