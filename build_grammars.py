@@ -78,29 +78,34 @@ def extract_code_elements(path: Path) -> List[Dict]:
         })
     return items
 
-# -------- NEW: Function to format query results --------
-def format_query_results(results: Dict):
+# -------- Function to format query results --------
+def format_query_results(results: Dict, query_element: Dict):
     """Parses and prints ChromaDB query results in a readable format."""
-    # ChromaDB returns lists of lists, so we work with the first result set [0]
+    print("=" * 50)
+    print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
+    print("=" * 50)
+
     ids = results['ids'][0]
     distances = results['distances'][0]
     metadatas = results['metadatas'][0]
     documents = results['documents'][0]
 
-    if not ids:
-        print("No similar items found.")
+    if len(ids) < 2:
+        print("No other similar items found in the database.")
         return
 
-    print("Found similar items:")
-    for i in range(len(ids)):
+    # Start from the second item (index 1) to skip the identical match to itself
+    for i in range(1, len(ids)):
         metadata = metadatas[i]
-        print("-" * 30)
-        # The distance is a similarity score; smaller is more similar.
-        print(f"Similarity Score (Distance): {distances[i]:.4f}")
-        print(f"File: {metadata['file_path']}")
-        print(f"Function: {metadata['function_name']} (lines {metadata['start_line']}-{metadata['end_line']})")
-        print("Code:")
-        print(documents[i].strip())
+        print(f"\nFound a similar item with score (distance): {distances[i]:.4f}")
+        print(f"  File: {metadata['file_path']}")
+        print(f"  Function: {metadata['function_name']} (lines {metadata['start_line']}-{metadata['end_line']})")
+        print("  Code:")
+        
+        # Perform the replacement before the f-string
+        indented_code = documents[i].strip().replace('\n', '\n    ')
+        print(f"    {indented_code}")
+
 
 # -------- Main execution logic --------
 def main():
@@ -129,7 +134,7 @@ def main():
         return
 
     # --- Step 2: Prepare and Add Data to ChromaDB ---
-    print(f"\n--- Adding {len(elements)} elements to ChromaDB ---")
+    print(f"\n--- Adding/updating {len(elements)} elements in ChromaDB ---")
     ids = [f"{target_path}:{el['name']}:{el['start_line']}" for el in elements]
     metadatas = [
         {
@@ -141,23 +146,36 @@ def main():
         } for el in elements
     ]
     documents = [el["text"] for el in elements]
-    code_collection.add(
+    # Use upsert to add new items or update existing ones
+    code_collection.upsert(
         embeddings=embeddings,
         documents=documents,
         metadatas=metadatas,
         ids=ids
     )
-    print("Data added to ChromaDB successfully.")
+    print("Data upserted to ChromaDB successfully.")
 
-    # --- Step 3: Query for Similar Code ---
-    print("\n--- Example Query: Finding code similar to the first element ---")
+    # --- MODIFIED: Step 3: Query for each element in the file ---
+    print("\n--- Running Similarity Queries for Each New Element ---")
     if embeddings:
-        similar_items = code_collection.query(
-            query_embeddings=[embeddings[0]],
-            n_results=2
-        )
-        # --- MODIFIED: Call the new formatting function ---
-        format_query_results(similar_items)
+        # Loop through each element we just processed
+        for i, element in enumerate(elements):
+            query_element_details = {
+                "name": element['name'],
+                "file_path": str(target_path)
+            }
+            
+            # Use the corresponding embedding for the query
+            query_embedding = embeddings[i]
+            
+            # Find the top 3 most similar items (will include the item itself)
+            similar_items = code_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=3 
+            )
+            
+            # Format and print the results for this specific element
+            format_query_results(similar_items, query_element_details)
 
 if __name__ == "__main__":
     main()
