@@ -78,8 +78,8 @@ def extract_code_elements(path: Path) -> List[Dict]:
         })
     return items
 
-# -------- Function to format query results --------
-def format_query_results(results: Dict, query_element: Dict):
+# -------- Function to show query results --------
+def show_query_results(results: Dict, query_element: Dict):
     """Parses and prints ChromaDB query results in a readable format."""
     print("=" * 50)
     print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
@@ -107,7 +107,6 @@ def format_query_results(results: Dict, query_element: Dict):
         print(f"    {indented_code}")
 
 
-# -------- Main execution logic --------
 def main():
     if len(sys.argv) != 2:
         print("Usage: python3 your_script.py <path-to-file(.py|.java)>")
@@ -174,8 +173,8 @@ def main():
                 n_results=3 
             )
             
-            # Format and print the results for this specific element
-            format_query_results(similar_items, query_element_details)
+            # Show the results for this specific element
+            show_query_results(similar_items, query_element_details)
 
 if __name__ == "__main__":
     main()
