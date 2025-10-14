@@ -6,6 +6,7 @@ import voyageai
 import chromadb
 from pathlib import Path
 from typing import List, Dict, Optional
+from tree_sitter_language_pack import get_language, get_parser
 
 # -------- Voyage AI client --------
 try:
