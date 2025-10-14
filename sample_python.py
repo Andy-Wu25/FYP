@@ -14,3 +14,7 @@ def hello(name):
 def heyyyy(name):
     for i in range(5):
         print(f"Hello, {name}!")
+        
+def awdawdawdawd(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
