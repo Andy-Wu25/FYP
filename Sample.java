@@ -7,7 +7,7 @@ class Sample {
 
     int minus(int a, int b) { return a - b; }
 
-    int mynameiscool(int a, int b) { return a - b; }
+    int nknjknjk(int a, int b) { return a - b; }
 
     int mynameiscool2(int a, int b) { return a - b; }
 
