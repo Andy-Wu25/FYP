@@ -9,6 +9,10 @@ class Sample {
 
     int mynameiscool(int a, int b) { return a - b; }
 
+    int mynameiscool2(int a, int b) { return a - b; }
+
+    int mynameiscool3(int a, int b) { return a - b; }
+
     static { System.out.println("init"); }  // initializer (no name)
 }
 

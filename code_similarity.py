@@ -50,9 +50,6 @@ def slice_text(buf: bytes, node) -> str:
 
 # -------- MODIFIED: Code extraction now uses content and adds hashing --------
 def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
-    """
-    Parses file content to extract functions/methods and calculates their hashes.
-    """
     lang = detect_lang(file_path)
     if not lang:
         return []
@@ -74,32 +71,24 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
             "method_declaration": "method",
             "constructor_declaration": "constructor",
         }
-    
-    # --- THIS IS THE CORRECTED BLOCK ---
+
     items: List[Dict] = []
     for _, capdict in query.matches(root):
-        # 'capdict' maps the capture name (e.g., "@decl") to a LIST of nodes.
         captured_nodes = capdict.get("decl")
         if not captured_nodes:
             continue
-
-        # We want the first (and usually only) node FROM that list.
         d = captured_nodes[0]
-
         name_node = d.child_by_field_name("name")
         name = slice_text(buf, name_node) if name_node else "<no-name>"
         text = slice_text(buf, d)
-        
-        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        # Create a unique string by combining the file path and the function text
+        unique_string = f"{str(file_path)}::{text}"
+        content_hash = hashlib.sha256(unique_string.encode("utf-8")).hexdigest()
 
         items.append({
-            "id": content_hash,
-            "name": name,
-            "kind": kind_map.get(d.type, d.type),
-            "start_line": d.start_point[0] + 1,
-            "end_line": d.end_point[0] + 1,
-            "text": text,
-            "hash": content_hash,
+            "id": content_hash, "name": name, "kind": kind_map.get(d.type, d.type),
+            "start_line": d.start_point[0] + 1, "end_line": d.end_point[0] + 1,
+            "text": text, "hash": content_hash,
         })
     return items
 

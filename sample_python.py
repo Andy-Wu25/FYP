@@ -26,3 +26,8 @@ def awdawdawdawd(name):
 def qqqqqqq(name):
     for i in range(5):
         print(f"Hello, {name}!")
+        
+        
+def wwwwww(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
