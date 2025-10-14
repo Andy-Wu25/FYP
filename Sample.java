@@ -13,6 +13,8 @@ class Sample {
 
     int mynameiscool3(int a, int b) { return a - b; }
 
+    int mynameiscool4(int a, int b) { return a - b; }
+
     static { System.out.println("init"); }  // initializer (no name)
 }
 
