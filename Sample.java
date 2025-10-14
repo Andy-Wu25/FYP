@@ -7,6 +7,8 @@ class Sample {
 
     int minus(int a, int b) { return a - b; }
 
+    int mynameiscool(int a, int b) { return a - b; }
+
     static { System.out.println("init"); }  // initializer (no name)
 }
 
