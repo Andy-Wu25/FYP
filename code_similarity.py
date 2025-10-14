@@ -74,17 +74,22 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
             "method_declaration": "method",
             "constructor_declaration": "constructor",
         }
-
+    
+    # --- THIS IS THE CORRECTED BLOCK ---
     items: List[Dict] = []
     for _, capdict in query.matches(root):
-        d = capdict.get("decl")
-        if not d:
+        # 'capdict' maps the capture name (e.g., "@decl") to a LIST of nodes.
+        captured_nodes = capdict.get("decl")
+        if not captured_nodes:
             continue
+
+        # We want the first (and usually only) node FROM that list.
+        d = captured_nodes[0]
+
         name_node = d.child_by_field_name("name")
         name = slice_text(buf, name_node) if name_node else "<no-name>"
         text = slice_text(buf, d)
         
-        # NEW: Calculate the hash of the function's text. This is its unique ID.
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
         items.append({
