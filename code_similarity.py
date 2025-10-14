@@ -77,7 +77,9 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
 
     items: List[Dict] = []
     for _, capdict in query.matches(root):
-        d = capdict.get("decl")[0]
+        d = capdict.get("decl")
+        if not d:
+            continue
         name_node = d.child_by_field_name("name")
         name = slice_text(buf, name_node) if name_node else "<no-name>"
         text = slice_text(buf, d)
@@ -145,14 +147,19 @@ def process_modified_file(file_path: Path):
     hashes_to_add = hashes_after - hashes_before
 
     if hashes_to_delete:
-        print(f"Deleting {len(hashes_to_delete)} removed/modified function(s)...")
+        print("Detected changes, updating database...")
+        for h in hashes_to_delete:
+            # Look up the function name from the 'before' state
+            print(f"  - Deleting old version of: {before_map[h]['name']}")
         code_collection.delete(ids=list(hashes_to_delete))
 
     if not hashes_to_add:
         print("No new or modified functions to add.")
         return
 
-    print(f"Found {len(hashes_to_add)} new/modified function(s) to add/update.")
+    for h in hashes_to_add:
+        # Look up the function name from the 'after' state
+        print(f"  + Adding new version of: {after_map[h]['name']}")
     elements_to_embed = [after_map[h] for h in hashes_to_add]
 
     try:
