@@ -18,16 +18,3 @@ def hi(name):
 def heyyyy(name):
     for i in range(5):
         print(f"Hello, {name}!")
-        
-def awdawdawdawd(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
-        
-def qqqqqqq(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
-        
-        
-def wwwwww(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
