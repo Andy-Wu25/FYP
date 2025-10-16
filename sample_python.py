@@ -33,7 +33,7 @@ def hellooooo(name):
         print(f"Hello, {name}!")
         
         
-def hellooooo(name):
+def abc(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
