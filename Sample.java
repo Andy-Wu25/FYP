@@ -11,6 +11,8 @@ class Sample {
 
     int test(int a, int b) { return a - b; }
 
+    int boop(int a, int b) { return a - b; }
+
     static { System.out.println("init"); } 
 }
 
