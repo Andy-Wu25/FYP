@@ -155,5 +155,4 @@ def index_entire_project(root_dir: str = "."):
     print("The pre-commit hook will now handle incremental updates.")
 
 if __name__ == "__main__":
-    # FIX: Assume the script is run from the project root. No need to ask.
     index_entire_project()
