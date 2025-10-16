@@ -182,6 +182,8 @@ def process_modified_file(file_path: Path):
         metadatas=metadatas
     )
     print("Database updated successfully.")
+    
+    
 
     print("\nRunning similarity queries for new/modified functions...")
     for i, element in enumerate(elements_to_embed):
