@@ -9,8 +9,7 @@ class Sample {
 
     int abc(int a, int b) { return a - b; }
 
-
-    static { System.out.println("init"); }  // initializer (no name)
+    static { System.out.println("init"); } 
 }
 
 

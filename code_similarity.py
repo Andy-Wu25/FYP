@@ -19,7 +19,7 @@ except Exception as e:
 chroma_client = chromadb.PersistentClient(path="vector_db")
 code_collection = chroma_client.get_or_create_collection(name="project_code")
 
-# -------- NEW: Git interaction functions --------
+# -------- Git interaction functions --------
 def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[bytes]:
     """
     Gets the content of a file from a specific git state.
@@ -36,7 +36,7 @@ def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[byte
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
-# -------- Helper functions (mostly unchanged) --------
+# -------- Helper functions --------
 def detect_lang(path: Path) -> Optional[str]:
     ext = path.suffix.lower()
     if ext == ".py":
@@ -48,7 +48,7 @@ def detect_lang(path: Path) -> Optional[str]:
 def slice_text(buf: bytes, node) -> str:
     return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
-# -------- MODIFIED: Code extraction now uses content and adds hashing --------
+# -------- Code extraction now uses content and adds hashing --------
 def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
     lang = detect_lang(file_path)
     if not lang:
@@ -92,7 +92,7 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[Dict]:
         })
     return items
 
-# -------- Function to show query results (unchanged) --------
+# -------- Function to show query results --------
 def show_query_results(results: Dict, query_element: Dict):
     """Parses and prints ChromaDB query results in a readable format."""
     print("-" * 25)
@@ -115,7 +115,7 @@ def show_query_results(results: Dict, query_element: Dict):
         print(f"     Function: {metadata['function_name']} (lines {metadata['start_line']}-{metadata['end_line']})")
     print("-" * 25)
 
-# -------- NEW: Core processing logic --------
+# -------- Core processing logic --------
 def process_modified_file(file_path: Path):
     """
     Compares the staged version of a file with its HEAD version,
@@ -202,7 +202,7 @@ def delete_all_elements_for_file(file_path_str: str):
     else:
         print("No functions found in the database for this file.")
 
-# -------- NEW: Main function is now a command-line router --------
+# -------- Main function is now a command-line router --------
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 code_similarity.py <command> <path-to-file>")
