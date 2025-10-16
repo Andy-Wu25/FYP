@@ -31,3 +31,9 @@ def hiiii(name):
 def hellooooo(name):
     for i in range(5):
         print(f"Hello, {name}!")
+        
+        
+def hellooooo(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
+        
