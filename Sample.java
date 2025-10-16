@@ -9,6 +9,8 @@ class Sample {
 
     int abc(int a, int b) { return a - b; }
 
+    int bcd(int a, int b) { return a - b; }
+
     static { System.out.println("init"); } 
 }
 

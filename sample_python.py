@@ -18,3 +18,7 @@ def hi(name):
 def heyyyy(name):
     for i in range(5):
         print(f"Hello, {name}!")
+        
+def hihi(name):
+    for i in range(5):
+        print(f"Hello, {name}!")

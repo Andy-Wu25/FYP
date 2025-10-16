@@ -188,7 +188,7 @@ def process_modified_file(file_path: Path):
         query_details = {"name": element['name'], "file_path": str(file_path)}
         similar_items = code_collection.query(
             query_embeddings=[embeddings[i]],
-            n_results=3
+            n_results=6
         )
         show_query_results(similar_items, query_details)
 
