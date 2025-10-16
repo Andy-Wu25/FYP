@@ -82,7 +82,6 @@ def index_entire_project(root_dir: str = "."):
     """
     print("--- Starting Initial Project Indexing ---")
 
-    # FIX: Use a try-except block to safely delete the collection if it exists.
     try:
         print(f"Attempting to delete existing collection: '{COLLECTION_NAME}'...")
         chroma_client.delete_collection(name=COLLECTION_NAME)
