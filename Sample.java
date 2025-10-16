@@ -9,6 +9,8 @@ class Sample {
 
     int abcdefc(int a, int b) { return a - b; }
 
+    int abc(int a, int b) { return a - b; }
+
     static { System.out.println("init"); } 
 }
 
