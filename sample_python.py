@@ -22,3 +22,12 @@ def heyyyy(name):
 def hihi(name):
     for i in range(5):
         print(f"Hello, {name}!")
+
+def hiiii(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
+
+
+def hellooooo(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
