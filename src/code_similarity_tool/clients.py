@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 # (Import CodeElement from your new parser file)
-from code_parser import CodeElement 
+from .code_parser import CodeElement 
 
 log = logging.getLogger(__name__)
 

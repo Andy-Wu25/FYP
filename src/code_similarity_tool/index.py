@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import List, Dict
 
 # Import your new shared modules
-from clients import CodeVectorStore, EmbeddingClient
-from code_parser import extract_code_elements, CodeElement
+from .clients import CodeVectorStore, EmbeddingClient
+from .code_parser import extract_code_elements, CodeElement
 
 # -------- Setup Logging --------
 # Use logging instead of print for better control
