@@ -42,10 +42,10 @@ def bcd(name):
         print(f"Hello, {name}!")
         
         
-def helllllllooooo(name):
+def hijklmn(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def defg(name):
+def abcdefg(name):
     for i in range(5):
         print(f"Hello, {name}!")
