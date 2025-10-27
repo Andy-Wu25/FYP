@@ -297,14 +297,14 @@ def main():
     # --- END OF NEW CHECK ---
 
     try:
-        # 1. Initialize services
+        # Initialize services
         embed_client = EmbeddingClient()
         vector_store = CodeVectorStore()
         
-        # 2. Initialize main processor and inject dependencies
+        # Initialize main processor and inject dependencies
         processor = CodeProcessor(vector_store, embed_client)
         
-        # 3. Run command
+        # Run command
         if command == "--modified":
             # We already have target_path from our check above
             processor.process_modified_file(target_path) 
