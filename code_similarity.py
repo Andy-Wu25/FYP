@@ -219,7 +219,7 @@ class CodeProcessor:
             return
 
         for el in elements_to_embed:
-            log.info(f"  + Adding new version of: {el['name']}")
+            log.info(f"+ Adding new version of: {el['name']}")
 
         # 1. Embed
         payloads = [it["text"] for it in elements_to_embed]

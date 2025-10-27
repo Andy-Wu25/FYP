@@ -45,3 +45,7 @@ def bcd(name):
 def cde(name):
     for i in range(5):
         print(f"Hello, {name}!")
+        
+def defg(name):
+    for i in range(5):
+        print(f"Hello, {name}!")
