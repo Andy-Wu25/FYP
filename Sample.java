@@ -9,13 +9,9 @@ class Sample {
 
     int abcdefc(int a, int b) { return a - b; }
 
-    int testing123(int a, int b) { return a - b; }
+    int heyhey(int a, int b) { return a - b; }
 
-    int testing(int a, int b) { return a - b; }
-
-    int testtesttest(int a, int b) { return a - b; }
-
-    int test123(int a, int b) { return a - b; }
+    int 456(int a, int b) { return a - b; }
 
     static { System.out.println("init"); } 
 }
