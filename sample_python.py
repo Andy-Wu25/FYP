@@ -23,7 +23,7 @@ def hihi(name):
     for i in range(5):
         print(f"Hello, {name}!")
 
-def hiiii(name):
+def andy(name):
     for i in range(5):
         print(f"Hello, {name}!")
 
@@ -46,6 +46,3 @@ def hijklmn(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def abcdefg(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
