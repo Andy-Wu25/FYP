@@ -211,7 +211,7 @@ class CodeProcessor:
         if hashes_to_delete:
             log.info("Detected changes, updating database...")
             for h in hashes_to_delete:
-                log.info(f"  - Deleting old version of: {before_map[h]['name']}")
+                log.info(f"- Deleting old version of: {before_map[h]['name']}")
             self.vector_store.delete_by_ids(hashes_to_delete)
 
         if not elements_to_embed:
