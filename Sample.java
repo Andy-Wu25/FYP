@@ -11,7 +11,7 @@ class Sample {
 
     int heyhey(int a, int b) { return a - b; }
 
-    int 456(int a, int b) { return a - b; }
+    int greeting456(int a, int b) { return a - b; }
 
     static { System.out.println("init"); } 
 }
