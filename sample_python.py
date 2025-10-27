@@ -37,12 +37,8 @@ def abc(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def bcd(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
         
-        
-def hijklmn(name):
+def hiiihello(name):
     for i in range(5):
         print(f"Hello, {name}!")
         

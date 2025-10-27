@@ -15,6 +15,9 @@ class Sample {
 
     int testing123567(int a, int b) { return a - b; }
 
+
+    int test123(int a, int b) { return a - b; }
+
     static { System.out.println("init"); } 
 }
 
