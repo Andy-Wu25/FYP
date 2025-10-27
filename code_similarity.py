@@ -10,7 +10,6 @@ from typing import List, Dict, Optional, Any, TypedDict
 from tree_sitter_language_pack import get_language, get_parser
 
 # -------- Setup Logging --------
-# Use logging instead of print for better control
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ class EmbeddingClient:
             log.error(f"Voyage embedding failed: {e}")
             return None
 
-# -------- Vector Storage Client --------
+# -------- Vector Database Client --------
 class CodeVectorStore:
     """Wraps all interactions with the ChromaDB vector store."""
     def __init__(self, path: str = "vector_db", collection_name: str = "project_code"):

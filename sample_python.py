@@ -33,12 +33,9 @@ def hellooooo(name):
         print(f"Hello, {name}!")
         
         
-def abc(name):
+def bcd(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
         
-def hiiihello(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
         
