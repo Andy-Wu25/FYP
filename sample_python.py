@@ -31,11 +31,7 @@ def andy(name):
 def hellooooo(name):
     for i in range(5):
         print(f"Hello, {name}!")
-        
-        
-def bcd(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
+    
         
         
         

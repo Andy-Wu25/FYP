@@ -273,49 +273,61 @@ class CodeProcessor:
             print(f"     Function: {metadata['function_name']} (lines {metadata['start_line']}-{metadata['end_line']})")
         print("-" * 25)
 
-# -------- Main execution --------
+# ... (all your other code: imports, helpers, classes, etc. - UNCHANGED) ...
+
+
+# -------- NEW: Main execution for pre-commit --------
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python3 code_similarity.py <command> <path-to-file>")
-        print("Commands: --modified, --deleted")
-        sys.exit(3)
-
-    command = sys.argv[1]
-    target_path_str = sys.argv[2]
+    # pre-commit passes all staged files as arguments
+    # sys.argv[0] is the script name
+    # sys.argv[1:] is the list of files
+    staged_files = sys.argv[1:]
     
+    if not staged_files:
+        log.info("No staged files to process.")
+        sys.exit(0) # Exit successfully
 
-    # Convert to a Path object to easily check its parts
-    target_path = Path(target_path_str)
+    # Filter out files in venv or other ignored paths
+    # This is a safety check in case .gitignore is missing
+    files_to_process = []
+    for f in staged_files:
+        target_path = Path(f)
+        if target_path.parts and target_path.parts[0] in ('venv', 'vector_db', '.git'):
+            log.info(f"Skipping ignored-path file: {f}")
+            continue
+        files_to_process.append(target_path)
     
-    # Check if the first part of the path is 'venv'
-    # .parts returns a tuple like ('venv', 'lib', '...')
-    if target_path.parts and target_path.parts[0] == 'venv':
-        # Log it for clarity, but exit successfully so the git hook doesn't fail
-        log.info(f"Skipping file in venv directory: {target_path_str}")
-        sys.exit(0) # <-- Exit with 0 (success)
-    # --- END OF NEW CHECK ---
+    if not files_to_process:
+        log.info("No relevant files to process after filtering.")
+        sys.exit(0)
+        
+    log.info(f"Processing {len(files_to_process)} staged file(s)...")
 
+    # We will assume a single script failure should block the commit
+    # We use exit_code to track this.
+    exit_code = 0 
+    
     try:
-        # Initialize services
+        # Initialize services ONCE
         embed_client = EmbeddingClient()
         vector_store = CodeVectorStore()
-        
-        # Initialize main processor and inject dependencies
         processor = CodeProcessor(vector_store, embed_client)
         
-        # Run command
-        if command == "--modified":
-            # We already have target_path from our check above
-            processor.process_modified_file(target_path) 
-        elif command == "--deleted":
-            processor.process_deleted_file(target_path_str)
-        else:
-            log.error(f"Unknown command: {command}")
-            sys.exit(4)
+        # Loop over each staged file
+        for file_path in files_to_process:
+            log.info("-" * 40)
+            log.info(f"=> Processing: {file_path}")
             
+            # The pre-commit framework doesn't run on deleted files
+            # by default, so we only need to handle modifications/additions.
+            processor.process_modified_file(file_path)
+
     except Exception as e:
-        log.error(f"An unexpected error occurred: {e}")
-        sys.exit(1)
+        log.exception(f"An unexpected error occurred: {e}")
+        exit_code = 1 # Mark failure
+
+    # Exit with 1 to block the commit, 0 to allow it
+    sys.exit(exit_code) 
 
 if __name__ == "__main__":
     main()
