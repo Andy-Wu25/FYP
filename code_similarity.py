@@ -14,7 +14,7 @@ from tree_sitter_language_pack import get_language, get_parser
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger(__name__)
 
-# -------- Type Definitions (for clarity) --------
+# -------- Type Definitions --------
 class CodeElement(TypedDict):
     id: str
     name: str
@@ -97,7 +97,7 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[CodeElement]:
         })
     return items
 
-# -------- Class 1: Embedding Client --------
+# -------- Embedding Client --------
 class EmbeddingClient:
     """Wraps all interactions with the Voyage AI embedding API."""
     def __init__(self):
@@ -119,7 +119,7 @@ class EmbeddingClient:
             log.error(f"Voyage embedding failed: {e}")
             return None
 
-# -------- Class 2: Vector Storage Client --------
+# -------- Vector Storage Client --------
 class CodeVectorStore:
     """Wraps all interactions with the ChromaDB vector store."""
     def __init__(self, path: str = "vector_db", collection_name: str = "project_code"):
@@ -172,7 +172,7 @@ class CodeVectorStore:
             n_results=n_results
         )
 
-# -------- Class 3: Main Application Logic --------
+# -------- Main Application Logic --------
 class CodeProcessor:
     """
     Orchestrates the process of diffing, embedding, and storing
@@ -284,6 +284,18 @@ def main():
     command = sys.argv[1]
     target_path_str = sys.argv[2]
     
+
+    # Convert to a Path object to easily check its parts
+    target_path = Path(target_path_str)
+    
+    # Check if the first part of the path is 'venv'
+    # .parts returns a tuple like ('venv', 'lib', '...')
+    if target_path.parts and target_path.parts[0] == 'venv':
+        # Log it for clarity, but exit successfully so the git hook doesn't fail
+        log.info(f"Skipping file in venv directory: {target_path_str}")
+        sys.exit(0) # <-- Exit with 0 (success)
+    # --- END OF NEW CHECK ---
+
     try:
         # 1. Initialize services
         embed_client = EmbeddingClient()
@@ -294,7 +306,8 @@ def main():
         
         # 3. Run command
         if command == "--modified":
-            processor.process_modified_file(Path(target_path_str))
+            # We already have target_path from our check above
+            processor.process_modified_file(target_path) 
         elif command == "--deleted":
             processor.process_deleted_file(target_path_str)
         else:
