@@ -10,7 +10,7 @@ def hellooooooo(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def heyyyyyyyyy(name):
+def heihihiei(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
