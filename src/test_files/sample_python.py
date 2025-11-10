@@ -12,7 +12,7 @@ def heyace(name):
         
 def heytrix(name):
     for i in range(5):
-        print(f"Hello, {name}!")
+        print(f"heyhey, {name}!")
         
         
 
