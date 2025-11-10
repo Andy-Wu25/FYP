@@ -1,17 +1,47 @@
 #!/usr/bin/env python3
 import sys
+import os
 import hashlib
 import subprocess
-import voyageai
-import chromadb
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Any, TypedDict
+
+import voyageai
 from tree_sitter_language_pack import get_language, get_parser
+
+# --- third-party store wrapper (local) ---
+from .clients import CodeVectorStore
+# If you keep extractors here, that's fine; otherwise import from code_parser
 
 # -------- Setup Logging --------
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger(__name__)
+
+from pathlib import Path
+import hashlib, subprocess
+
+THIS_FILE = Path(__file__).resolve()
+TOOL_DIR  = THIS_FILE.parent                 # .../src/code_similarity_tool
+SRC_ROOT  = TOOL_DIR.parent                  # .../src
+REPO_ROOT = SRC_ROOT.parent                  # repo root
+
+def _repo_slug() -> str:
+    # prefer remote URL; fallback to absolute path
+    try:
+        url = subprocess.check_output(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=str(REPO_ROOT)
+        ).decode().strip()
+    except Exception:
+        url = str(REPO_ROOT.resolve())
+    h = hashlib.sha1(url.encode()).hexdigest()[:8]
+    return f"{REPO_ROOT.name}-{h}"
+
+DB_BASE = Path.home() / ".code-sim-db"
+DB_PATH = DB_BASE / _repo_slug()             # e.g. ~/.code-sim-db/FYP-1a2b3c4d
+COLLECTION_NAME = "project_code"
+METRIC = "cosine"
 
 # -------- Type Definitions --------
 class CodeElement(TypedDict):
@@ -29,11 +59,10 @@ class QueryElement(TypedDict):
 
 # -------- Git & Parsing Helpers (Stateless) --------
 def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[bytes]:
-    """Gets the content of a file from a specific git state."""
+    """Gets the content of a file from a specific git state (index if commit_hash is '')."""
     try:
         git_spec = f"{commit_hash}:{file_path}" if commit_hash else f":{file_path}"
-        command = ['git', 'show', git_spec]
-        result = subprocess.run(command, capture_output=True, check=True, text=False)
+        result = subprocess.run(['git', 'show', git_spec], capture_output=True, check=True, text=False)
         return result.stdout
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -46,11 +75,13 @@ def detect_lang(path: Path) -> Optional[str]:
         return "java"
     return None
 
-def slice_text(buf: bytes, node) -> str:
+def _slice_text(buf: bytes, node) -> str:
     return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
-def extract_code_elements(file_path: Path, buf: bytes) -> List[CodeElement]:
-    """Extracts functions/methods from code content using tree-sitter."""
+def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeElement]:
+    """Extracts functions/methods using tree-sitter. Returns [] if buf is None."""
+    if not buf:
+        return []
     lang = detect_lang(file_path)
     if not lang:
         return []
@@ -63,271 +94,198 @@ def extract_code_elements(file_path: Path, buf: bytes) -> List[CodeElement]:
     if lang == "python":
         query_str = r"(function_definition) @decl"
         kind_map = {"function_definition": "function"}
-    else: # java
+    else:  # java
         query_str = r"""
           (method_declaration) @decl
           (constructor_declaration) @decl
         """
-        kind_map = {
-            "method_declaration": "method",
-            "constructor_declaration": "constructor",
-        }
-    
+        kind_map = {"method_declaration": "method", "constructor_declaration": "constructor"}
+
     query = language.query(query_str)
     items: List[CodeElement] = []
-    
-    for _, capdict in query.matches(root):
-        captured_nodes = capdict.get("decl")
+
+    for _, caps in query.matches(root):
+        captured_nodes = caps.get("decl")
         if not captured_nodes:
             continue
-        
         d = captured_nodes[0]
         name_node = d.child_by_field_name("name")
-        name = slice_text(buf, name_node) if name_node else "<no-name>"
-        text = slice_text(buf, d)
-        
-        unique_string = f"{str(file_path)}::{text}"
-        content_hash = hashlib.sha256(unique_string.encode("utf-8")).hexdigest()
+        name = _slice_text(buf, name_node) if name_node else "<no-name>"
+        text = _slice_text(buf, d)
+
+        # content-based ids (avoid file-path in hash so moves don't force re-embedding)
+        content_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
         items.append({
-            "id": content_hash, "name": name, "kind": kind_map.get(d.type, d.type),
-            "start_line": d.start_point[0] + 1, "end_line": d.end_point[0] + 1,
-            "text": text, "hash": content_hash,
+            "id": content_sha,
+            "name": name,
+            "kind": kind_map.get(d.type, d.type),
+            "start_line": d.start_point[0] + 1,
+            "end_line": d.end_point[0] + 1,
+            "text": text,
+            "hash": content_sha,
         })
     return items
 
 # -------- Embedding Client --------
 class EmbeddingClient:
-    """Wraps all interactions with the Voyage AI embedding API."""
-    def __init__(self):
+    """Wraps Voyage AI embeddings (batched)."""
+    def __init__(self, model: str = "voyage-code-2"):
         try:
             self.client = voyageai.Client()
+            self.model = model
             log.info("Voyage AI client initialized.")
         except Exception as e:
             log.error(f"Voyage AI client init failed (set VOYAGE_API_KEY): {e}")
             sys.exit(1)
 
     def embed_documents(self, texts: List[str]) -> Optional[List[List[float]]]:
-        """Embeds a list of code snippets."""
         if not texts:
             return []
         try:
-            result = self.client.embed(texts, model="voyage-code-2", input_type="document")
-            return result.embeddings
+            res = self.client.embed(texts, model=self.model, input_type="document")
+            return res.embeddings
         except Exception as e:
             log.error(f"Voyage embedding failed: {e}")
             return None
 
-# -------- Vector Database Client --------
-class CodeVectorStore:
-    """Wraps all interactions with the ChromaDB vector store."""
-    def __init__(self, path: str = "vector_db", collection_name: str = "project_code"):
-        try:
-            self.client = chromadb.PersistentClient(path=path)
-            self.collection = self.client.get_or_create_collection(name=collection_name)
-            log.info(f"ChromaDB client initialized. Collection: {collection_name}")
-        except Exception as e:
-            log.error(f"ChromaDB client init failed: {e}")
-            sys.exit(1)
-
-    def upsert_code_elements(self, elements: List[CodeElement], embeddings: List[List[float]], file_path: Path):
-        """Adds or updates code elements in the database."""
-        ids = [el['id'] for el in elements]
-        metadatas = [{
-            "file_path": str(file_path),
-            "function_name": el['name'],
-            "kind": el['kind'],
-            "start_line": el['start_line'],
-            "end_line": el['end_line'],
-            "content_hash": el['hash']
-        } for el in elements]
-        documents = [el["text"] for el in elements]
-        
-        self.collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas
-        )
-
-    def delete_by_ids(self, ids: List[str]):
-        """Deletes a list of elements by their unique IDs."""
-        if ids:
-            self.collection.delete(ids=ids)
-
-    def delete_by_file_path(self, file_path_str: str) -> int:
-        """Deletes all vector DB entries associated with a file."""
-        existing_items = self.collection.get(where={"file_path": file_path_str})
-        if existing_items and existing_items['ids']:
-            num_deleted = len(existing_items['ids'])
-            self.collection.delete(ids=existing_items['ids'])
-            return num_deleted
-        return 0
-
-    def query_by_embedding(self, embedding: List[float], n_results: int = 6) -> Dict:
-        """Finds similar items to a given embedding."""
-        return self.collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results
-        )
-
 # -------- Main Application Logic --------
 class CodeProcessor:
-    """
-    Orchestrates the process of diffing, embedding, and storing
-    code elements.
-    """
     def __init__(self, vector_store: CodeVectorStore, embed_client: EmbeddingClient):
         self.vector_store = vector_store
         self.embed_client = embed_client
 
     def process_modified_file(self, file_path: Path):
-        """
-        Compares staged vs. HEAD versions of a file, updates the DB,
-        and runs similarity queries.
-        """
-        log.info(f"Processing modified file: {file_path}")
-        content_before = get_file_content_from_git('HEAD', str(file_path))
-        content_after = get_file_content_from_git('', str(file_path))
+        """Compare HEAD vs INDEX, update DB, run similarity queries."""
+        rel_for_git = str(file_path.relative_to(REPO_ROOT))
+        log.info(f"Processing modified file: {rel_for_git}")
 
-        if not content_after:
-            log.warning(f"Could not read staged content for {file_path}. Skipping.")
+        before = get_file_content_from_git('HEAD', rel_for_git)
+        after  = get_file_content_from_git('',    rel_for_git)
+
+        if not after:
+            log.warning(f"Could not read staged content for {rel_for_git}. Skipping.")
             return
 
-        elements_before = extract_code_elements(file_path, content_before) if content_before else []
-        elements_after = extract_code_elements(file_path, content_after)
+        elems_before = extract_code_elements(file_path, before) if before else []
+        elems_after  = extract_code_elements(file_path, after)
 
-        before_map = {el['hash']: el for el in elements_before}
-        after_map = {el['hash']: el for el in elements_after}
+        b_map = {e['hash']: e for e in elems_before}
+        a_map = {e['hash']: e for e in elems_after}
 
-        hashes_before = set(before_map.keys())
-        hashes_after = set(after_map.keys())
+        to_delete = list(set(b_map.keys()) - set(a_map.keys()))
+        to_add    = list(set(a_map.keys()) - set(b_map.keys()))
+        new_elems = [a_map[h] for h in to_add]
 
-        hashes_to_delete = list(hashes_before - hashes_after)
-        hashes_to_add = list(hashes_after - hashes_before)
-        elements_to_embed = [after_map[h] for h in hashes_to_add]
-
-        if hashes_to_delete:
+        if to_delete:
             log.info("Detected changes, updating database...")
-            for h in hashes_to_delete:
-                log.info(f"- Deleting old version of: {before_map[h]['name']}")
-            self.vector_store.delete_by_ids(hashes_to_delete)
+            for h in to_delete:
+                log.info(f"- Deleting old version of: {b_map[h]['name']}")
+            self.vector_store.delete_by_ids(to_delete)
 
-        if not elements_to_embed:
+        if not new_elems:
             log.info("No new or modified functions to add.")
             return
 
-        for el in elements_to_embed:
+        for el in new_elems:
             log.info(f"+ Adding new version of: {el['name']}")
 
-        # 1. Embed
-        payloads = [it["text"] for it in elements_to_embed]
-        embeddings = self.embed_client.embed_documents(payloads)
-        
+        # Embed
+        embeddings = self.embed_client.embed_documents([e["text"] for e in new_elems])
         if embeddings is None:
             log.error("Failed to get embeddings. Aborting update.")
             return
 
-        # 2. Upsert
-        self.vector_store.upsert_code_elements(elements_to_embed, embeddings, file_path)
+        # Upsert
+        rel_fp = str(file_path.relative_to(REPO_ROOT))
+        self.vector_store.upsert_code_elements(new_elems, embeddings, rel_fp)
         log.info("Database updated successfully.")
 
-        # 3. Query
+        # Query
         log.info("\nRunning similarity queries for new/modified functions...")
-        for i, element in enumerate(elements_to_embed):
-            query_details: QueryElement = {"name": element['name'], "file_path": str(file_path)}
-            similar_items = self.vector_store.query_by_embedding(embeddings[i], n_results=6)
-            self._show_query_results(similar_items, query_details)
+        for i, element in enumerate(new_elems):
+            similar = self.vector_store.query_by_embedding(embeddings[i], n_results=6)
+            self._show_query_results(similar, {"name": element['name'], "file_path": rel_fp})
 
-    def process_deleted_file(self, file_path_str: str):
-        """Handles a file deletion event by cleaning the database."""
-        log.info(f"File was deleted. Removing all associated functions from DB: {file_path_str}")
-        num_deleted = self.vector_store.delete_by_file_path(file_path_str)
-        if num_deleted > 0:
-            log.info(f"Deleted {num_deleted} function(s) for deleted file: {file_path_str}")
-        else:
-            log.info("No functions found in the database for this file.")
+    def process_deleted_file(self, rel_path: str):
+        log.info(f"File deleted. Removing DB entries for: {rel_path}")
+        num = self.vector_store.delete_by_file_path(rel_path)
+        log.info(f"Deleted {num} function(s).")
 
     def _show_query_results(self, results: Dict, query_element: QueryElement):
-        """Parses and prints ChromaDB query results in a readable format."""
         print("-" * 25)
         print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
-        
-        if not results['ids'] or not results['ids'][0]:
+
+        if not results.get('ids') or not results['ids'][0]:
             print("  -> Query returned no results.")
             return
 
         ids = results['ids'][0]
         distances = results['distances'][0]
-        metadatas = results['metadatas'][0]
+        metas = results['metadatas'][0]
 
         if len(ids) < 2:
             print("  -> No other similar items found in the database.")
             return
 
-        # Start from the second item (index 1) to skip the identical match
-        for i in range(1, len(ids)):
-            metadata = metadatas[i]
+        for i in range(1, len(ids)):  # skip exact self
+            m = metas[i]
             print(f"\n  -> Found similar item (distance: {distances[i]:.4f})")
-            print(f"     File: {metadata['file_path']}")
-            print(f"     Function: {metadata['function_name']} (lines {metadata['start_line']}-{metadata['end_line']})")
+            print(f"     File: {m['file_path']}")
+            print(f"     Function: {m['function_name']} (lines {m['start_line']}-{m['end_line']})")
         print("-" * 25)
 
-# ... (all your other code: imports, helpers, classes, etc. - UNCHANGED) ...
-
-
-# -------- NEW: Main execution for pre-commit --------
+# -------- Entry point for pre-commit --------
 def main():
-    # pre-commit passes all staged files as arguments
-    # sys.argv[0] is the script name
-    # sys.argv[1:] is the list of files
-    staged_files = sys.argv[1:]
-    
-    if not staged_files:
-        log.info("No staged files to process.")
-        sys.exit(0) # Exit successfully
+    # Ensure DB path exists
+    DB_PATH.mkdir(parents=True, exist_ok=True)
 
-    # Filter out files in venv or other ignored paths
-    # This is a safety check in case .gitignore is missing
-    files_to_process = []
-    for f in staged_files:
-        target_path = Path(f)
-        if target_path.parts and target_path.parts[0] in ('venv', 'vector_db', '.git'):
-            log.info(f"Skipping ignored-path file: {f}")
+    # pre-commit passes staged files as argv
+    staged = [Path(p).resolve() for p in sys.argv[1:]]
+
+    if not staged:
+        log.info("No staged files to process.")
+        sys.exit(0)
+
+    # Filter: only under src/, never under the tool dir, and skip noise
+    filtered: List[Path] = []
+    for p in staged:
+        # must be under src/
+        try:
+            p.relative_to(SRC_ROOT)
+        except ValueError:
             continue
-        files_to_process.append(target_path)
-    
-    if not files_to_process:
+        # exclude tool code
+        try:
+            p.relative_to(TOOL_DIR)
+            continue
+        except ValueError:
+            pass
+        if any(x in p.parts for x in ("__pycache__", "node_modules", "venv", ".git")):
+            continue
+        filtered.append(p)
+
+    if not filtered:
         log.info("No relevant files to process after filtering.")
         sys.exit(0)
-        
-    log.info(f"Processing {len(files_to_process)} staged file(s)...")
 
-    # We will assume a single script failure should block the commit
-    # We use exit_code to track this.
-    exit_code = 0 
-    
+    log.info(f"Processing {len(filtered)} staged file(s)...")
     try:
-        # Initialize services ONCE
         embed_client = EmbeddingClient()
-        vector_store = CodeVectorStore()
-        processor = CodeProcessor(vector_store, embed_client)
-        
-        # Loop over each staged file
-        for file_path in files_to_process:
+        store = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
+        processor = CodeProcessor(store, embed_client)
+
+        for fp in filtered:
+            rel = fp.relative_to(REPO_ROOT)
             log.info("-" * 40)
-            log.info(f"=> Processing: {file_path}")
-            
-            # The pre-commit framework doesn't run on deleted files
-            # by default, so we only need to handle modifications/additions.
-            processor.process_modified_file(file_path)
+            log.info(f"=> Processing: {rel}")
+            processor.process_modified_file(fp)
 
     except Exception as e:
-        log.exception(f"An unexpected error occurred: {e}")
-        exit_code = 1 # Mark failure
+        log.exception(f"Unexpected error: {e}")
+        sys.exit(1)
 
-    # Exit with 1 to block the commit, 0 to allow it
-    sys.exit(exit_code) 
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

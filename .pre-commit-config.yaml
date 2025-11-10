@@ -1,0 +1,19 @@
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: code-similarity-am
+        name: Code Similarity (added/modified)
+        entry: env PYTHONDONTWRITEBYTECODE=1 python -B -m src.code_similarity_tool.code_similarity
+        language: system
+        pass_filenames: true
+        stages: [pre-commit]
+        files: '\.(py|java)$'
+        exclude: '^src/code_similarity_tool/'
+
+      - id: code-similarity-deletes
+        name: Code Similarity (deletions)
+        entry: bash -lc 'env PYTHONDONTWRITEBYTECODE=1 python -B -m src.code_similarity_tool.code_similarity --deleted $(git diff --cached --name-only --diff-filter=D | grep -E "\.(py|java)$" || true)'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

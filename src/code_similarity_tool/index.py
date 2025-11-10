@@ -1,103 +1,92 @@
 #!/usr/bin/env python3
-import os
-import sys
-import logging
 from pathlib import Path
-from typing import List, Dict
+from typing import List
+import hashlib, subprocess
+import logging
 
-# Import your new shared modules
-from clients import CodeVectorStore, EmbeddingClient
-from code_parser import extract_code_elements, CodeElement
+from .code_similarity import extract_code_elements, EmbeddingClient  # reuse implementations
+from .clients import CodeVectorStore
 
-# -------- Setup Logging --------
-# Use logging instead of print for better control
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger(__name__)
 
-class ProjectIndexer:
-    """
-    Scans an entire project directory, deletes the old database,
-    and builds a new one from scratch.
-    """
-    def __init__(self, root_dir: str, vector_store: CodeVectorStore, embed_client: EmbeddingClient):
-        self.root_dir = root_dir
-        self.vector_store = vector_store
-        self.embed_client = embed_client
+THIS_FILE = Path(__file__).resolve()
+TOOL_DIR  = THIS_FILE.parent
+SRC_ROOT  = TOOL_DIR.parent
+REPO_ROOT = SRC_ROOT.parent
 
-    def index_project(self):
-        """Main method to run the indexing process."""
-        log.info("--- Starting Initial Project Indexing ---")
-        
-        # 1. Reset the database
-        self.vector_store.reset_collection()
+def _repo_slug() -> str:
+    try:
+        url = subprocess.check_output(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=str(REPO_ROOT)
+        ).decode().strip()
+    except Exception:
+        url = str(REPO_ROOT.resolve())
+    h = hashlib.sha1(url.encode()).hexdigest()[:8]
+    return f"{REPO_ROOT.name}-{h}"
 
-        # 2. Scan all files and extract code elements
-        all_elements = self._scan_project_files()
-        if not all_elements:
-            log.info("No code elements found to index.")
-            return
+DB_BASE = Path.home() / ".code-sim-db"
+DB_PATH = DB_BASE / _repo_slug()
+COLLECTION_NAME = "project_code"
+METRIC = "cosine"
 
-        log.info(f"\nFound a total of {len(all_elements)} functions/methods to index.")
-        log.info("Getting embeddings from Voyage AI (this may take a moment)...")
+def _is_under(child: Path, parent: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
 
-        # 3. Get embeddings in a single batch
-        payloads = [it["text"] for it in all_elements]
-        embeddings = self.embed_client.embed_documents(payloads)
-        
-        if embeddings is None:
-            log.error("Failed to get embeddings. Aborting index.")
-            return
-
-        log.info("Embeddings received. Adding to vector database...")
-        
-        # 4. Add to database in a single batch
-        self.vector_store.batch_add_elements(all_elements, embeddings)
-
-        log.info("\n✅ Initial indexing complete!")
-        log.info("The pre-commit hook will now handle incremental updates.")
-
-    def _scan_project_files(self) -> List[CodeElement]:
-        """Walks the directory and parses all valid files."""
-        all_elements: List[CodeElement] = []
-        for subdir, _, files in os.walk(self.root_dir):
-            # Skip hidden folders and venv
-            if any(part.startswith('.') for part in Path(subdir).parts) or 'venv' in subdir:
-                continue
-
-            for file in files:
-                file_path = Path(os.path.join(subdir, file))
-                if file_path.suffix not in ['.py', '.java']:
-                    continue
-
-                log.info(f"  -> Scanning: {file_path}")
-                try:
-                    content = file_path.read_bytes()
-                    elements = extract_code_elements(file_path, content)
-                    if elements:
-                        all_elements.extend(elements)
-                except Exception as e:
-                    log.warning(f"    [warn] Could not process file: {e}")
-        
-        return all_elements
+def _iter_source_files(src_root: Path, tool_dir: Path):
+    for p in src_root.rglob("*"):
+        if not p.is_file():
+            continue
+        if _is_under(p, tool_dir):
+            continue
+        if any(x in p.parts for x in ("__pycache__", "node_modules", "venv", ".git")):
+            continue
+        yield p
 
 def main():
-    """Main execution function."""
-    try:
-        # 1. Initialize services
-        embed_client = EmbeddingClient()
-        vector_store = CodeVectorStore(path=DB_PATH, collection_name=COLLECTION_NAME)
-        
-        # 2. Initialize and run the indexer
-        # You can make root_dir an argument if you want, e.g., sys.argv[1]
-        indexer = ProjectIndexer(root_dir=".", vector_store=vector_store, embed_client=embed_client)
-        indexer.index_project()
-        
-    except Exception as e:
-        log.error(f"An unexpected error occurred: {e}")
-        sys.exit(1)
+    DB_PATH.mkdir(parents=True, exist_ok=True)
+    embedder = EmbeddingClient()
+
+    store = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
+    log.info(f"ChromaDB client initialized. Collection: {COLLECTION_NAME}")
+
+    log.info("--- Starting Initial Project Indexing ---")
+    log.info("Resetting collection...")
+    store.reset_collection()
+
+    files = list(_iter_source_files(SRC_ROOT, TOOL_DIR))
+    for f in files:
+        log.info(f"  -> Scanning: {f.relative_to(REPO_ROOT)}")
+
+    elements = []
+    for f in files:
+        # Read from disk (indexer always uses working tree)
+        buf = f.read_bytes()
+        elements.extend(extract_code_elements(f, buf))
+
+    log.info(f"\nFound a total of {len(elements)} functions/methods to index.")
+    if not elements:
+        log.info("Nothing to index. Exiting.")
+        return
+
+    log.info("Getting embeddings from Voyage AI (this may take a moment)...")
+    vectors = embedder.embed_documents([e["text"] for e in elements])
+    if vectors is None:
+        log.error("Failed to get embeddings.")
+        return
+
+    log.info("Embeddings received. Adding to vector database...")
+    # store expects file_path as string relative to repo root (we’ll provide per element)
+    store.add_many(elements, base_repo=str(REPO_ROOT))
+
+    log.info("\n✅ Initial indexing complete!")
+    log.info(f"DB path: {DB_PATH}")
+    log.info(f"Collection: {COLLECTION_NAME}")
 
 if __name__ == "__main__":
-    # Define these constants here or get them from env/args
-    DB_PATH = "vector_db"
-    COLLECTION_NAME = "project_code"
     main()
