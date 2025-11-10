@@ -15,11 +15,8 @@ def hi(name):
         print(f"Hello, {name}!")
         
         
-def heyyyy(name):
+def hiandy(name):
     for i in range(5):
         print(f"Hello, {name}!")
 
 
-def hibob(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
