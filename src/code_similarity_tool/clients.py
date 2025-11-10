@@ -5,7 +5,7 @@ import voyageai
 import chromadb
 from pathlib import Path
 from typing import List, Dict, Optional
-from .code_parser import CodeElement 
+from code_parser import CodeElement 
 
 log = logging.getLogger(__name__)
 
