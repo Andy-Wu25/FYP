@@ -15,8 +15,5 @@ def hi(name):
         print(f"Hello, {name}!")
         
         
-def hiandy(name):
-    for i in range(5):
-        print(f"Hello, {name}!")
 
 
