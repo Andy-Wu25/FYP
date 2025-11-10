@@ -18,28 +18,12 @@ from .clients import CodeVectorStore
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 log = logging.getLogger(__name__)
 
-from pathlib import Path
-import hashlib, subprocess
-
+# -------- Paths / constants (shared between indexer & hook) --------
 THIS_FILE = Path(__file__).resolve()
-TOOL_DIR  = THIS_FILE.parent                 # .../src/code_similarity_tool
-SRC_ROOT  = TOOL_DIR.parent                  # .../src
-REPO_ROOT = SRC_ROOT.parent                  # repo root
-
-def _repo_slug() -> str:
-    # prefer remote URL; fallback to absolute path
-    try:
-        url = subprocess.check_output(
-            ["git", "config", "--get", "remote.origin.url"],
-            cwd=str(REPO_ROOT)
-        ).decode().strip()
-    except Exception:
-        url = str(REPO_ROOT.resolve())
-    h = hashlib.sha1(url.encode()).hexdigest()[:8]
-    return f"{REPO_ROOT.name}-{h}"
-
-DB_BASE = Path.home() / ".code-sim-db"
-DB_PATH = DB_BASE / _repo_slug()             # e.g. ~/.code-sim-db/FYP-1a2b3c4d
+TOOL_DIR = THIS_FILE.parent                 # .../src/code_similarity_tool
+SRC_ROOT = TOOL_DIR.parent                  # .../src
+REPO_ROOT = SRC_ROOT.parent                 # repo root
+DB_PATH = REPO_ROOT / ".git" / ".code-sim-db"      # single persistent DB location
 COLLECTION_NAME = "project_code"
 METRIC = "cosine"
 
