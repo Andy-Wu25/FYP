@@ -1,4 +1,4 @@
-def minunnnnn():
+def hei():
     print("Hello, world!")
     
     
