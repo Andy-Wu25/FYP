@@ -2,7 +2,7 @@ def hei():
     return "hei"
     
     
-def hello(a, b):
+def minusminus(a, b):
     return a + b
 
 

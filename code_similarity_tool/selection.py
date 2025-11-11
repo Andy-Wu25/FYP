@@ -3,7 +3,11 @@ from pathlib import Path
 from fnmatch import fnmatch
 
 def within_selection(repo_root: Path, abs_path: Path, cfg: dict) -> bool:
-    rel = abs_path.resolve().relative_to(repo_root.resolve())
+    try:
+        rel = abs_path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False  # outside repo
+
     rel_str = str(rel).replace("\\", "/")
 
     # exclude patterns first
@@ -14,11 +18,9 @@ def within_selection(repo_root: Path, abs_path: Path, cfg: dict) -> bool:
     inc_dirs = [Path(d) for d in cfg.get("include_dirs", [])]
     inc_files = set(cfg.get("include_files", []))
 
-    # included by file
     if rel_str in inc_files:
         return True
 
-    # included by directory
     for d in inc_dirs:
         try:
             rel.relative_to(d)
@@ -26,7 +28,7 @@ def within_selection(repo_root: Path, abs_path: Path, cfg: dict) -> bool:
         except ValueError:
             pass
 
-    # if nothing selected at all, fallback to old behavior:
+    # If nothing selected, default to allow (legacy behaviour)
     if not inc_dirs and not inc_files:
-        return True  # “watch everything” under previous logic
+        return True
     return False

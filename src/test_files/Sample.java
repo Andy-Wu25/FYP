@@ -11,7 +11,7 @@ public class Sample {
         }
     }
 
-    public static int awdawdawdawd(int a, int b) {
+    public static int hi(int a, int b) {
         return a + b;
     }
 
