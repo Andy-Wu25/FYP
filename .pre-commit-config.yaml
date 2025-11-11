@@ -3,11 +3,11 @@ repos:
     hooks:
       - id: code-similarity-am
         name: Code Similarity (added/modified)
-        entry: env PYTHONDONTWRITEBYTECODE=1 python -B -m code_similarity_tool.code_similarity
+        entry: env PYTHONDONTWRITEBYTECODE=1 python -B -m code_similarity_tool.code_similarity --verbose
         language: system
         pass_filenames: true
         stages: [pre-commit]
-        files: '\.(py|java)$'
+        files: ''                     # run for any change; script filters
         exclude: '^code_similarity_tool/'
 
       - id: code-similarity-deletes
