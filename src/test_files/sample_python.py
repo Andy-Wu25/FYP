@@ -6,11 +6,11 @@ def add(a, b):
     return a + b
 
 
-def heyace(name):
+def hellohello(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def heyalice(name):
+def hihihihi(name):
     for i in range(5):
         print(f"heyhey, {name}!")
         
