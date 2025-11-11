@@ -221,25 +221,27 @@ class CodeProcessor:
 
 # -------- Entry point for pre-commit --------
 def main():
-    # Ensure DB path exists
     DB_PATH.mkdir(parents=True, exist_ok=True)
 
-    # pre-commit passes staged files as argv
-    staged = [Path(p).resolve() for p in sys.argv[1:]]
+    args = sys.argv[1:]
+    deleted_mode = False
+    if args and args[0] == "--deleted":
+        deleted_mode = True
+        args = args[1:]
+
+    staged = [Path(p).resolve() for p in args]
 
     if not staged:
         log.info("No staged files to process.")
         sys.exit(0)
 
-    # Filter: only under src/, never under the tool dir, and skip noise
+    # filter to src/, exclude tool dir and junk
     filtered: List[Path] = []
     for p in staged:
-        # must be under src/
         try:
             p.relative_to(SRC_ROOT)
         except ValueError:
             continue
-        # exclude tool code
         try:
             p.relative_to(TOOL_DIR)
             continue
@@ -253,23 +255,29 @@ def main():
         log.info("No relevant files to process after filtering.")
         sys.exit(0)
 
-    log.info(f"Processing {len(filtered)} staged file(s)...")
-    try:
-        embed_client = EmbeddingClient()
-        store = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
-        processor = CodeProcessor(store, embed_client)
+    store = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
 
+    if deleted_mode:
+        # just clean DB; no embedding needed
         for fp in filtered:
-            rel = fp.relative_to(REPO_ROOT)
-            log.info("-" * 40)
-            log.info(f"=> Processing: {rel}")
-            processor.process_modified_file(fp)
+            rel = str(fp.relative_to(REPO_ROOT))
+            log.info(f"File deleted. Removing DB entries for: {rel}")
+            n = store.delete_by_file_path(rel)
+            log.info(f"Deleted {n} function(s).")
+        sys.exit(0)
 
-    except Exception as e:
-        log.exception(f"Unexpected error: {e}")
-        sys.exit(1)
+    embed_client = EmbeddingClient()
+    processor = CodeProcessor(store, embed_client)
+
+    log.info(f"Processing {len(filtered)} staged file(s)...")
+    for fp in filtered:
+        rel = fp.relative_to(REPO_ROOT)
+        log.info("-" * 40)
+        log.info(f"=> Processing: {rel}")
+        processor.process_modified_file(fp)
 
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
