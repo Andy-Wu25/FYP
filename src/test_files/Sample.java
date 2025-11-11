@@ -11,11 +11,11 @@ public class Sample {
         }
     }
 
-    public static int add(int a, int b) {
+    public static int awdawdawdawd(int a, int b) {
         return a + b;
     }
 
-    public static int iamandyabdy(int a, int b) {
+    public static int minusminus(int a, int b) {
         return a - b;
     }
 
