@@ -1,5 +1,5 @@
 def hei():
-    print("Hello, world!")
+    return "hei"
     
     
 def hello(a, b):
