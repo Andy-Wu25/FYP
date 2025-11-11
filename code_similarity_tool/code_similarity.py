@@ -11,6 +11,9 @@ from typing import List, Dict, Optional, TypedDict, Set
 import voyageai
 from tree_sitter_language_pack import get_language, get_parser
 
+from .config import load_config
+from .selection import within_selection
+
 # --- local store wrapper ---
 from .clients import CodeVectorStore
 
@@ -27,6 +30,9 @@ COLLECTION_NAME = "project_code"
 METRIC = "cosine"
 
 SUPPORTED_SUFFIXES = {".py", ".java"}
+
+# load selection config once (used by the tiny guard below)
+CFG = load_config(REPO_ROOT)
 
 # -------- Types --------
 class CodeElement(TypedDict):
@@ -266,6 +272,9 @@ def main():
             continue
         if p.suffix.lower() not in SUPPORTED_SUFFIXES:
             continue
+        # 🔒 tiny guard: honor Tk selection
+        if not within_selection(REPO_ROOT, p, CFG):
+            continue
         if p not in seen:
             seen.add(p)
             union.append(p)
@@ -337,6 +346,8 @@ def main():
     # Optional: also purge staged deletions if requested
     if with_deletions:
         staged_deleted = _get_staged_deletions()
+        # 🔒 tiny guard: respect Tk selection for deletions too
+        staged_deleted = [p for p in staged_deleted if within_selection(REPO_ROOT, p, CFG)]
         if staged_deleted:
             log.info("Processing deletions...")
             for fp in staged_deleted:
