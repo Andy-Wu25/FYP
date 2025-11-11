@@ -5,7 +5,7 @@ public class Sample {
         System.out.println("This is a sample Java file.");
     }
 
-    public static void printHello(String name) {
+    public static void printhey(String name) {
         for (int i = 0; i < 5; i++) {
             System.out.println("Hello, " + name + "!");
         }

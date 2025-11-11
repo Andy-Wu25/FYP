@@ -1,8 +1,12 @@
 def hei():
     return "hei"
     
-def ace(a, b):
-    return a + b
+def bob(a, b):
+    print(a + b)
+    print("done")
+    
+def charlie(x, y):
+    return x * y
 
 
 
