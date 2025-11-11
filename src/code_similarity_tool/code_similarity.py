@@ -4,7 +4,6 @@ import os
 import hashlib
 import subprocess
 import logging
-import difflib
 from pathlib import Path
 from typing import List, Dict, Optional, Any, TypedDict
 
@@ -141,9 +140,7 @@ class CodeProcessor:
         self.embed_client = embed_client
 
     def process_modified_file(self, file_path: Path):
-        """Compare HEAD vs INDEX, update DB, run similarity queries (with paired logging)."""
-        import difflib
-
+        """Compare HEAD vs INDEX, update DB, run similarity queries."""
         rel_for_git = str(file_path.relative_to(REPO_ROOT))
         log.info(f"Processing modified file: {rel_for_git}")
 
@@ -159,94 +156,40 @@ class CodeProcessor:
 
         b_map = {e['hash']: e for e in elems_before}
         a_map = {e['hash']: e for e in elems_after}
-        b_hashes = set(b_map.keys())
-        a_hashes = set(a_map.keys())
 
-        hashes_to_delete = list(b_hashes - a_hashes)
-        hashes_to_add    = list(a_hashes - b_hashes)
-        to_delete_elems  = [b_map[h] for h in hashes_to_delete]
-        to_add_elems     = [a_map[h] for h in hashes_to_add]
+        to_delete = list(set(b_map.keys()) - set(a_map.keys()))
+        to_add    = list(set(a_map.keys()) - set(b_map.keys()))
+        new_elems = [a_map[h] for h in to_add]
 
-        # ---- Pairing for nicer logs ----
-        b_by_name, a_by_name = {}, {}
-        for e in to_delete_elems: b_by_name.setdefault(e['name'], []).append(e)
-        for e in to_add_elems:    a_by_name.setdefault(e['name'], []).append(e)
-
-        paired = []
-        used_del, used_add = set(), set()
-
-        # Pass 1: same-name pairs
-        for name in set(b_by_name) & set(a_by_name):
-            for old_el, new_el in zip(b_by_name[name], a_by_name[name]):
-                paired.append((old_el, new_el))
-                used_del.add(old_el['id'])
-                used_add.add(new_el['id'])
-
-        # Pass 2: fuzzy rename pairs
-        rem_del = [e for e in to_delete_elems if e['id'] not in used_del]
-        rem_add = [e for e in to_add_elems   if e['id'] not in used_add]
-        candidates = []
-        for old_el in rem_del:
-            best, best_score = None, 0.0
-            for new_el in rem_add:
-                score = difflib.SequenceMatcher(None, old_el['name'], new_el['name']).ratio()
-                if score > best_score:
-                    best_score, best = score, new_el
-            if best and best_score >= 0.6:
-                candidates.append((old_el, best, best_score))
-        candidates.sort(key=lambda t: t[2], reverse=True)
-        seen_new = set()
-        for old_el, new_el, _ in candidates:
-            if old_el['id'] in used_del or new_el['id'] in used_add or new_el['id'] in seen_new:
-                continue
-            paired.append((old_el, new_el))
-            used_del.add(old_el['id'])
-            used_add.add(new_el['id'])
-            seen_new.add(new_el['id'])
-
-        solo_deletes = [e for e in to_delete_elems if e['id'] not in used_del]
-        solo_adds    = [e for e in to_add_elems   if e['id'] not in used_add]
-
-        # ---- Apply DB deletes first ----
-        if hashes_to_delete:
+        if to_delete:
             log.info("Detected changes, updating database...")
-            self.vector_store.delete_by_ids(hashes_to_delete)
+            for h in to_delete:
+                log.info(f"- Deleting old version of: {b_map[h]['name']}")
+            self.vector_store.delete_by_ids(to_delete)
 
-        # ---- Pretty, ordered logs (no duplicates) ----
-        def _k(e): return (e['start_line'], e['name'])
-        paired.sort(key=lambda pr: _k(pr[0]))
-        solo_deletes.sort(key=_k)
-        solo_adds.sort(key=_k)
-
-        for old_el, new_el in paired:
-            log.info(f"- Deleting old version of: {old_el['name']}")
-            log.info(f"+ Adding new version of: {new_el['name']}")
-        for old_el in solo_deletes:
-            log.info(f"- Deleting old version of: {old_el['name']}")
-        for new_el in solo_adds:
-            log.info(f"+ Adding new version of: {new_el['name']}")
-
-        # ---- Embed only the new elements (paired-new + solo adds) ----
-        new_elems = [new for (_, new) in paired] + solo_adds
         if not new_elems:
             log.info("No new or modified functions to add.")
             return
 
+        for el in new_elems:
+            log.info(f"+ Adding new version of: {el['name']}")
+
+        # Embed
         embeddings = self.embed_client.embed_documents([e["text"] for e in new_elems])
         if embeddings is None:
             log.error("Failed to get embeddings. Aborting update.")
             return
 
+        # Upsert
         rel_fp = str(file_path.relative_to(REPO_ROOT))
         self.vector_store.upsert_code_elements(new_elems, embeddings, rel_fp)
         log.info("Database updated successfully.")
 
-        # ---- Similarity queries ----
+        # Query
         log.info("\nRunning similarity queries for new/modified functions...")
         for i, element in enumerate(new_elems):
             similar = self.vector_store.query_by_embedding(embeddings[i], n_results=6)
             self._show_query_results(similar, {"name": element['name'], "file_path": rel_fp})
-
 
     def process_deleted_file(self, rel_path: str):
         log.info(f"File deleted. Removing DB entries for: {rel_path}")
