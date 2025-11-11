@@ -64,3 +64,23 @@ class CodeVectorStore:
 
     def query_by_embedding(self, embedding: List[float], n_results: int = 6) -> Dict:
         return self.collection.query(query_embeddings=[embedding], n_results=n_results)
+    
+    def move_file_path(self, old_rel: str, new_rel: str) -> int:
+        """
+        Update metadata.file_path from old_rel to new_rel for all items in that file.
+        Returns how many items were updated.
+        """
+        # 1) fetch ids under old_rel
+        res = self.collection.get(where={"file_path": old_rel}, include=["metadatas", "ids"])
+        ids = res.get("ids") or []
+        if not ids:
+            return 0
+        # 2) update each id's metadatas with new file_path
+        new_metas = []
+        for m in (res.get("metadatas") or []):
+            m2 = dict(m)
+            m2["file_path"] = new_rel
+            new_metas.append(m2)
+        # Chroma supports update with parallel lists
+        self.collection.update(ids=ids, metadatas=new_metas)
+        return len(ids)

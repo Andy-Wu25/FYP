@@ -5,7 +5,7 @@ def hey_world():
 def awdawdadawdawdawdawd(a, b):
     return a + b
 
-def add(a, b):
+def hehe(a, b):
     return a + b
 
 
