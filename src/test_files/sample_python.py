@@ -10,7 +10,7 @@ def heyace(name):
     for i in range(5):
         print(f"Hello, {name}!")
         
-def heytrix(name):
+def heyalice(name):
     for i in range(5):
         print(f"heyhey, {name}!")
         
