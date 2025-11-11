@@ -1,2 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Chroma DB
+.git/.code-sim-db/
+
+# venv
 venv/
-.code-sim-db/

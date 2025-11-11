@@ -16,7 +16,7 @@ public class Sample {
     }
 
     public static int minusminus(int a, int b) {
-        return a - b;
+        return a + b;
     }
 
     
