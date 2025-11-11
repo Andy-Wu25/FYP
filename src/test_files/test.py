@@ -2,7 +2,7 @@ def hello_world():
     return "heyyyy"
     
     
-def addminus(a, b):
+def addalice(a, b):
     return a + b
 
 

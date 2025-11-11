@@ -1,7 +1,7 @@
 def hei():
     return "hei"
     
-def heheehehehe(a, b):
+def ace(a, b):
     return a + b
 
 

@@ -6,11 +6,12 @@ import hashlib
 import subprocess
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, TypedDict, Tuple
+from typing import List, Dict, Optional, TypedDict, Set
 
 import voyageai
 from tree_sitter_language_pack import get_language, get_parser
 
+# --- local store wrapper ---
 from .clients import CodeVectorStore
 
 # -------- Logging --------
@@ -19,11 +20,11 @@ log = logging.getLogger(__name__)
 
 # -------- Paths / constants --------
 THIS_FILE = Path(__file__).resolve()
-TOOL_DIR  = THIS_FILE.parent                 # .../code_similarity_tool
-REPO_ROOT = TOOL_DIR.parent                  # repo root (tool lives at repo root)
-DB_PATH   = REPO_ROOT / ".git" / ".code-sim-db"
+TOOL_DIR = THIS_FILE.parent                 # .../code_similarity_tool
+REPO_ROOT = TOOL_DIR.parent                 # repo root (tool lives at repo root)
+DB_PATH = REPO_ROOT / ".git" / ".code-sim-db"
 COLLECTION_NAME = "project_code"
-METRIC          = "cosine"
+METRIC = "cosine"
 
 SUPPORTED_SUFFIXES = {".py", ".java"}
 
@@ -113,6 +114,32 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
         })
     return items
 
+def _get_staged_added_modified() -> List[Path]:
+    """Return repo-absolute Paths for files staged as added/modified (diff-filter=AM)."""
+    try:
+        out = subprocess.check_output(
+            ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM', '-z'],
+            cwd=str(REPO_ROOT)
+        )
+        parts = out.split(b'\x00')
+        files = [p.decode('utf-8') for p in parts if p]
+        return [(REPO_ROOT / f).resolve() for f in files]
+    except Exception:
+        return []
+
+def _get_staged_deletions() -> List[Path]:
+    """Return repo-absolute Paths for files staged as deleted (diff-filter=D)."""
+    try:
+        out = subprocess.check_output(
+            ['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '-z'],
+            cwd=str(REPO_ROOT)
+        )
+        parts = out.split(b'\x00')
+        files = [p.decode('utf-8') for p in parts if p]
+        return [(REPO_ROOT / f).resolve() for f in files]
+    except Exception:
+        return []
+
 def _is_junk(p: Path) -> bool:
     parts = set(p.parts)
     if any(seg in parts for seg in (".git", "venv", "__pycache__", "node_modules")):
@@ -142,61 +169,16 @@ class EmbeddingClient:
             log.error(f"Voyage embedding failed: {e}")
             return None
 
-# -------- Git staged helpers (portable) --------
-def _get_staged_deletions() -> List[str]:
-    """Repo-relative paths staged as deleted."""
-    try:
-        out = subprocess.check_output(
-            ['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '-z'],
-            cwd=str(REPO_ROOT)
-        )
-        parts = [p for p in out.split(b'\x00') if p]
-        return [p.decode('utf-8') for p in parts]
-    except Exception:
-        return []
-
-def _get_staged_renames() -> List[Tuple[str, str]]:
-    """
-    Returns list of (old_rel, new_rel) for staged renames.
-    Uses -M to detect renames; parses -z for safety.
-    """
-    try:
-        out = subprocess.check_output(
-            ['git', 'diff', '--cached', '-M', '--name-status', '-z'],
-            cwd=str(REPO_ROOT)
-        )
-        b = out.split(b'\x00')
-        i, renames = 0, []
-        while i < len(b):
-            if not b[i]:
-                break
-            entry = b[i].decode('utf-8', errors='replace')
-            # Examples: "R100", "R087", etc. Next two fields are old and new names.
-            if entry.startswith('R'):
-                oldp = b[i+1].decode('utf-8', errors='replace')
-                newp = b[i+2].decode('utf-8', errors='replace')
-                renames.append((oldp, newp))
-                i += 3
-            else:
-                # Statuses like "A", "M", "D" are followed by one path
-                i += 2
-        return renames
-    except Exception:
-        return []
-
 # -------- Main Processor --------
 class CodeProcessor:
     def __init__(self, store: CodeVectorStore, embedder: EmbeddingClient):
         self.store = store
         self.embedder = embedder
 
-    def analyze_modified_file(self, file_path: Path) -> Tuple[str, List[CodeElement], List[str], List[str]]:
+    def analyze_modified_file(self, file_path: Path):
         """
-        Compare HEAD vs INDEX for a file and compute:
-          - rel_for_git (str)
-          - new_elems: list[CodeElement] to (re)embed/upsert
-          - deleted_ids: list[str] element ids to delete
-          - deleted_names: list[str] names for logging
+        Compare HEAD vs INDEX and return:
+          rel_for_git, new_elems, deleted_ids, deleted_names
         """
         rel_for_git = str(file_path.relative_to(REPO_ROOT))
         log.info(f"Processing modified file: {rel_for_git}")
@@ -204,19 +186,22 @@ class CodeProcessor:
         before = get_file_content_from_git('HEAD', rel_for_git)
         after  = get_file_content_from_git('',     rel_for_git)
         if not after:
-            log.warning(f"Could not read staged content for {rel_for_git}. Skipping.")
+            log.info(f"[skip] Cannot read staged content for: {rel_for_git}")
             return rel_for_git, [], [], []
 
         before_el = extract_code_elements(file_path, before) if before else []
         after_el  = extract_code_elements(file_path, after)
 
-        b_map = {e['hash']: e for e in before_el}
-        a_map = {e['hash']: e for e in after_el}
+        before_map = {e['hash']: e for e in before_el}
+        after_map  = {e['hash']: e for e in after_el}
 
-        deleted_ids   = list(set(b_map.keys()) - set(a_map.keys()))
-        to_add_ids    = list(set(a_map.keys()) - set(b_map.keys()))
-        new_elems     = [a_map[h] for h in to_add_ids]
-        deleted_names = [b_map[h]['name'] for h in deleted_ids if h in b_map]
+        deleted_ids   = list(set(before_map.keys()) - set(after_map.keys()))
+        to_add_ids    = list(set(after_map.keys())  - set(before_map.keys()))
+        new_elems     = [after_map[h] for h in to_add_ids]
+        deleted_names = [before_map[h]['name'] for h in deleted_ids if h in before_map]
+
+        if not new_elems and not deleted_ids:
+            log.info(f"[skip] No function-level changes in: {rel_for_git}")
 
         return rel_for_git, new_elems, deleted_ids, deleted_names
 
@@ -226,15 +211,15 @@ class CodeProcessor:
         num = self.store.delete_by_file_path(rel_path)
         log.info(f"Deleted {num} function(s).")
 
-    def show_query_results(self, results: Dict, query_element: QueryElement):
-        # Leading separator only; no trailing dashed line—keeps output tidy.
+    def _show_query_results(self, results: Dict, query_element: QueryElement):
+        # Leading separator only; no trailing dashed line
         print("-" * 25)
         print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
         if not results.get('ids') or not results['ids'][0]:
             print("  -> Query returned no results.\n")
             return
 
-        ids   = results['ids'][0]
+        ids = results['ids'][0]
         dists = results['distances'][0]
         metas = results['metadatas'][0]
         if len(ids) < 2:
@@ -253,29 +238,26 @@ def main():
     # Ensure DB exists
     DB_PATH.mkdir(parents=True, exist_ok=True)
 
-    # Parse args (support --deleted / --with-deletions / --with-renames)
+    # Parse args (support --deleted and --with-deletions)
     args = sys.argv[1:]
-    deleted_mode   = False
+    deleted_mode = False
     with_deletions = False
-    with_renames   = False
 
-    while args and args[0].startswith("--"):
-        if args[0] == "--deleted":
-            deleted_mode = True
-        elif args[0] == "--with-deletions":
-            with_deletions = True
-        elif args[0] == "--with-renames":
-            with_renames = True
-        else:
-            log.warning(f"Unknown flag {args[0]} ignored.")
+    if args and args[0] == "--deleted":
+        deleted_mode = True
+        args = args[1:]
+    elif args and args[0] == "--with-deletions":
+        with_deletions = True
         args = args[1:]
 
-    # Files pre-commit passes are the staged AM candidates
-    staged_am_abs = [Path(p).resolve() for p in args]
+    # 1) Start with files provided by pre-commit (argv)
+    from_precommit = [Path(p).resolve() for p in args]
 
-    # Filter: inside repo, right types, skip junk/tool
-    filtered_am: List[Path] = []
-    for p in staged_am_abs:
+    # 2) Union with the *actual* staged-added/modified list from Git
+    staged_am_git = _get_staged_added_modified()
+    union: List[Path] = []
+    seen: Set[Path] = set()
+    for p in from_precommit + staged_am_git:
         try:
             p.relative_to(REPO_ROOT)
         except ValueError:
@@ -284,42 +266,31 @@ def main():
             continue
         if p.suffix.lower() not in SUPPORTED_SUFFIXES:
             continue
-        filtered_am.append(p)
+        if p not in seen:
+            seen.add(p)
+            union.append(p)
 
     store    = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
     embedder = EmbeddingClient()
     proc     = CodeProcessor(store, embedder)
 
-    # Legacy "only deletions" mode: treat argv as files-to-delete
+    # Legacy deletion mode (treat argv as deletions only)
     if deleted_mode:
-        if not filtered_am:
+        if not union:
             log.info("No relevant files to process after filtering.")
             sys.exit(0)
-        for fp in filtered_am:
+        for fp in union:
             rel = str(fp.relative_to(REPO_ROOT))
-            log.info(f"File deleted. Removing DB entries for: {rel}")
-            n = store.delete_by_file_path(rel)
-            log.info(f"Deleted {n} function(s).")
+            proc.process_deleted_file(rel)
         sys.exit(0)
 
-    # Optional: process staged renames (update metadata without re-embedding)
-    if with_renames:
-        renames = _get_staged_renames()
-        for old_rel, new_rel in renames:
-            # Only bother if target is a supported language and not junk
-            np = (REPO_ROOT / new_rel).resolve()
-            if _is_junk(np) or np.suffix.lower() not in SUPPORTED_SUFFIXES:
-                continue
-            updated = store.move_file_path(old_rel, new_rel)
-            if updated:
-                log.info(f"Updated {updated} vector(s) for rename: {old_rel} -> {new_rel}")
-
-    # Analyze AM changes first; batch embeddings across ALL files
+    # Analyze AM changes; batch embeddings across ALL files
     all_new: List[CodeElement] = []
-    all_new_rel_paths: List[str] = []  # same length as all_new
-    if filtered_am:
-        log.info(f"Processing {len(filtered_am)} staged file(s)...")
-        for fp in filtered_am:
+    all_new_rel_paths: List[str] = []
+
+    if union:
+        log.info(f"Processing {len(union)} staged file(s)...")
+        for fp in union:
             rel_for_git, new_elems, deleted_ids, deleted_names = proc.analyze_modified_file(fp)
 
             if deleted_ids:
@@ -333,6 +304,8 @@ def main():
                     log.info(f"+ Adding new version of: {el['name']}")
                 all_new.extend(new_elems)
                 all_new_rel_paths.extend([rel_for_git] * len(new_elems))
+    else:
+        log.info("No relevant files to process after filtering.")
 
     # Single embed call for all new/changed functions
     if all_new:
@@ -358,25 +331,20 @@ def main():
         for rel in by_file_elems:
             for el in by_file_elems[rel]:
                 similar = store.query_by_embedding(vectors[idx], n_results=6)
-                proc.show_query_results(similar, {"name": el['name'], "file_path": rel})
+                proc._show_query_results(similar, {"name": el['name'], "file_path": rel})
                 idx += 1
-    else:
-        log.info("No new or modified functions to add.")
 
-    # Optionally also purge staged deletions of whole files
+    # Optional: also purge staged deletions if requested
     if with_deletions:
         staged_deleted = _get_staged_deletions()
         if staged_deleted:
             log.info("Processing deletions...")
-            for rel in staged_deleted:
-                # Only purge supported types; keeps DB tidy.
-                p = (REPO_ROOT / rel).resolve()
-                if p.suffix.lower() not in SUPPORTED_SUFFIXES:
+            for fp in staged_deleted:
+                try:
+                    rel = str(fp.relative_to(REPO_ROOT))
+                except ValueError:
                     continue
                 proc.process_deleted_file(rel)
-
-    if not filtered_am and not with_deletions:
-        log.info("No relevant files to process after filtering.")
 
     sys.exit(0)
 

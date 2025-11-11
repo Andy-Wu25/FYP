@@ -2,10 +2,10 @@ def hey_world():
     print("Hello, world!")
     
     
-def awda(a, b):
+def awdawdadawdawdawdawd(a, b):
     return a + b
 
-def boooobby(a, b):
+def hehe(a, b):
     return a + b
 
 
