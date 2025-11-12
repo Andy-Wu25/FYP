@@ -13,15 +13,6 @@ EXCLUDED_DIRS = {".git", "venv", "node_modules", "__pycache__"}
 CHECKED = "☑"
 UNCHECKED = "☐"
 
-# Absolute path to the tool directory so we can detect and disable it in the UI
-TOOL_DIR = Path(__file__).resolve().parent  # .../repo/code_similarity_tool
-
-def _is_tool_path(p: Path) -> bool:
-    """True if p is the tool folder or any of its descendants."""
-    p = p.resolve()
-    return p == TOOL_DIR or TOOL_DIR in p.parents
-
-
 class SourceSelectorApp:
     def __init__(self, root: tk.Tk, repo_root: Path):
         self.root = root
@@ -33,7 +24,6 @@ class SourceSelectorApp:
         self.item_is_dir: Dict[str, bool] = {}
         self.checked: Dict[str, bool] = {}         # tree item id -> checked?
         self.path_to_item: Dict[Path, str] = {}    # absolute path -> tree item id
-        self.disabled_items: Set[str] = set()      # tree item ids that are disabled (tool dir + children)
 
         self.cfg = load_config(self.repo_root)
         # Preload any existing selections to pre-check in UI
@@ -69,9 +59,6 @@ class SourceSelectorApp:
         self.tree = ttk.Treeview(self.root, columns=("check", "name"), show="tree")
         self.tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        # Style/tag for disabled nodes
-        self.tree.tag_configure("disabled", foreground="#888888")
-
         # Bind click in the tree to toggle
         self.tree.bind("<Button-1>", self._on_click)
 
@@ -90,7 +77,6 @@ class SourceSelectorApp:
         self.item_is_dir.clear()
         self.checked.clear()
         self.path_to_item.clear()
-        self.disabled_items.clear()
         self._populate_tree()
 
     def _populate_tree(self):
@@ -117,40 +103,23 @@ class SourceSelectorApp:
             if name in EXCLUDED_DIRS:
                 continue
 
-            is_tool = _is_tool_path(p)
-
             if p.is_dir():
-                tags = ("disabled",) if is_tool else ()
-                node_id = self.tree.insert(parent_id, "end", text=f"{name} {UNCHECKED}", open=False, tags=tags)
+                node_id = self.tree.insert(parent_id, "end", text=f"{name} {UNCHECKED}", open=False)
                 self.item_path[node_id] = p
                 self.item_is_dir[node_id] = True
-                if is_tool:
-                    # tool nodes are always unchecked and disabled
-                    self.checked[node_id] = False
-                    self.disabled_items.add(node_id)
-                else:
-                    self.checked[node_id] = (p.resolve() in self.pre_selected_dirs)
+                self.checked[node_id] = (p.resolve() in self.pre_selected_dirs)
                 self.path_to_item[p.resolve()] = node_id
 
-                # Recurse into children (tool descendants remain disabled)
+                # If pre-selected dir, cascade to current children later when expanding
                 self._add_children(p, node_id)
                 self._refresh_label(node_id)
-
             else:
-                # For tool files: always show, even if not .py/.java, but disable them
-                if not is_tool:
-                    # For regular files, honor the "show only code" filter
-                    if self.show_only_code.get() and not self._is_supported_code(p):
-                        continue
-                tags = ("disabled",) if is_tool else ()
-                node_id = self.tree.insert(parent_id, "end", text=f"{name} {UNCHECKED}", open=False, tags=tags)
+                if self.show_only_code.get() and not self._is_supported_code(p):
+                    continue
+                node_id = self.tree.insert(parent_id, "end", text=f"{name} {UNCHECKED}", open=False)
                 self.item_path[node_id] = p
                 self.item_is_dir[node_id] = False
-                if is_tool:
-                    self.checked[node_id] = False
-                    self.disabled_items.add(node_id)
-                else:
-                    self.checked[node_id] = (p.resolve() in self.pre_selected_files)
+                self.checked[node_id] = (p.resolve() in self.pre_selected_files)
                 self.path_to_item[p.resolve()] = node_id
                 self._refresh_label(node_id)
 
@@ -163,14 +132,10 @@ class SourceSelectorApp:
         checked = self.checked.get(item_id, False)
         path = self.item_path[item_id]
         icon = CHECKED if checked else UNCHECKED
-        suffix = " (excluded)" if item_id in self.disabled_items else ""
-        self.tree.item(item_id, text=f"{path.name} {icon}{suffix}")
+        self.tree.item(item_id, text=f"{path.name} {icon}")
 
     def _toggle_item(self, item_id: str, desired: bool | None = None):
-        """Toggle checkbox state. If folder, cascade to descendants, skipping disabled nodes."""
-        if item_id in self.disabled_items:
-            return  # ignore clicks on disabled rows
-
+        """Toggle checkbox state. If folder, cascade to descendants."""
         current = self.checked.get(item_id, False)
         new_state = (not current) if desired is None else desired
         self.checked[item_id] = new_state
@@ -182,11 +147,6 @@ class SourceSelectorApp:
                 self._set_state_recursive(child, new_state)
 
     def _set_state_recursive(self, item_id: str, state: bool):
-        if item_id in self.disabled_items:
-            # keep disabled nodes unchecked and unchanged
-            self.checked[item_id] = False
-            self._refresh_label(item_id)
-            return
         self.checked[item_id] = state
         self._refresh_label(item_id)
         for child in self.tree.get_children(item_id):
@@ -232,18 +192,14 @@ class SourceSelectorApp:
 
     def _select_all(self):
         for iid in list(self.item_path.keys()):
-            if iid in self.disabled_items:
-                continue
             self.checked[iid] = True
             self._refresh_label(iid)
 
     def _select_none(self):
         for iid in list(self.item_path.keys()):
-            if iid in self.disabled_items:
-                continue
             self.checked[iid] = False
             self._refresh_label(iid)
-
+            
     def _apply(self):
         inc_dirs, inc_files = self._collect_checked()
 
@@ -257,14 +213,12 @@ class SourceSelectorApp:
         messagebox.showinfo("Saved", f"Selection saved to {self.repo_root / '.git' / '.code-sim-config.json'}")
         self.root.destroy()
 
-
 def main():
     # Tool is at repo_root/code_similarity_tool/select_sources.py
     repo_root = Path(__file__).resolve().parents[1]  # …/repo
     root = tk.Tk()
     app = SourceSelectorApp(root, repo_root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
