@@ -22,7 +22,7 @@ class SourceSelectorApp:
         self.show_only_code = tk.BooleanVar(value=True)
         self.item_path: Dict[str, Path] = {}       # tree item id -> absolute path
         self.item_is_dir: Dict[str, bool] = {}
-        self.checked: Dict[str, bool] = {}         # tree item id -> checked?
+        self.checked: Dict[str, bool] = {}         # tree item id -> checked
         self.path_to_item: Dict[Path, str] = {}    # absolute path -> tree item id
 
         self.cfg = load_config(self.repo_root)
