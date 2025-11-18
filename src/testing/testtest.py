@@ -8,10 +8,10 @@ def heyhey(a, b):
 def bob(x, y):
     return x * y
 
-def hehe(a, b):
+def awdawdawd(a, b):
     print("Hello, world!")
     return a + b
 
 
 def ace(x, y):
-    return x * y
+    return x // y

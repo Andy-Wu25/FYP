@@ -5,8 +5,8 @@ def bob(a, b):
     print(a + b)
     print("done")
     
-def bob(x, y):
-    return x * y
+def hi(x, y):
+    return x - y
 
 
 

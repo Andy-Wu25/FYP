@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import List
 
 from .code_similarity import extract_code_elements, EmbeddingClient
 from .clients import CodeVectorStore
-from .config import load_config
-from .selection import within_selection
+from .ignore import load_ignore_file, IgnoreMatcher  # <- use your ignore engine
 
 # -------- Logging --------
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -17,47 +17,53 @@ log = logging.getLogger(__name__)
 # -------- Paths / constants --------
 THIS_FILE = Path(__file__).resolve()
 TOOL_DIR  = THIS_FILE.parent                 # .../code_similarity_tool
-REPO_ROOT = TOOL_DIR.parent                  # repo root (tool lives at repo root)
+REPO_ROOT = TOOL_DIR.parent                  # repo root
 
-# keep DB “in the repo” but under .git so it’s never tracked
 DB_PATH          = REPO_ROOT / ".git" / ".code-sim-db"
 COLLECTION_NAME  = "project_code"
 METRIC           = "cosine"
-
 SUPPORTED_SUFFIXES = {".py", ".java"}
 
-# -------- Helpers --------
-def _is_junk(p: Path) -> bool:
-    parts = set(p.parts)
-    # quick filters
-    if any(seg in parts for seg in (".git", "venv", "__pycache__", "node_modules")):
-        return True
-    if TOOL_DIR in p.parents:  # don’t index the tool itself
-        return True
-    return False
+
+def _posix_rel(p: Path) -> str:
+    return str(p.resolve().relative_to(REPO_ROOT.resolve())).replace("\\", "/")
+
 
 def _iter_selected_files(repo_root: Path) -> List[Path]:
     """
     Walk the repo and yield files that:
       - are .py or .java
-      - pass selection rules (if any)
-      - skip tool/.git/venv/etc
+      - are allowed by .code-simignore
+    We prune ignored directories so we don't descend into them.
     """
-    cfg = load_config(repo_root)
+    matcher: IgnoreMatcher = load_ignore_file(repo_root)
     out: List[Path] = []
-    for p in repo_root.rglob("*"):
-        if not p.is_file():
-            continue
-        if _is_junk(p):
-            continue
-        if p.suffix.lower() not in SUPPORTED_SUFFIXES:
-            continue
-        if not within_selection(repo_root, p, cfg):
-            continue
-        out.append(p)
+
+    for root, dirs, files in os.walk(repo_root):
+        root_path = Path(root)
+
+        # --- prune dirs that are ignored ---
+        keep_dirs = []
+        for d in dirs:
+            abs_dir = root_path / d
+            if matcher.allows(abs_dir, is_dir=True):
+                keep_dirs.append(d)
+        dirs[:] = keep_dirs  # modify in-place so os.walk doesn't enter ignored dirs
+
+        # --- collect files ---
+        for fname in files:
+            abs_f = root_path / fname
+            if not abs_f.is_file():
+                continue
+            if abs_f.suffix.lower() not in SUPPORTED_SUFFIXES:
+                continue
+            if not matcher.allows(abs_f, is_dir=False):
+                continue
+            out.append(abs_f)
+
     return out
 
-# -------- Main --------
+
 def main():
     DB_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -75,7 +81,7 @@ def main():
 
     # 1) extract all elements first
     all_elements = []
-    file_for_element = []  # parallel list storing each element's file path
+    file_for_element = []
     for f in files:
         buf = f.read_bytes()
         els = extract_code_elements(f, buf)
@@ -95,8 +101,7 @@ def main():
         log.error("Failed to embed elements. Aborting.")
         return
 
-    # 3) upsert grouped per file (but embeddings already computed)
-    #    walk through elements and bucket by file path
+    # 3) upsert grouped per file
     from collections import defaultdict
     bucket = defaultdict(lambda: {"elements": [], "vectors": []})
 
@@ -112,6 +117,7 @@ def main():
     log.info("\nFound a total of %d functions/methods to index.", total)
     log.info("\n✅ Initial indexing complete!")
     log.info("DB path: %s", DB_PATH)
+
 
 if __name__ == "__main__":
     main()

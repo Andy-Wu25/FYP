@@ -23,5 +23,9 @@ public class Sample {
         return a - b;
     }
 
+    public static int cccccc(int a, int b) {
+        return a * b;
+    }
+
     
 }

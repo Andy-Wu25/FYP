@@ -7,9 +7,6 @@ def hello_world():
 def minus(a, b):
     return a - b
 
-def multiply(x, y):
-    return x * y
-
 
         
         

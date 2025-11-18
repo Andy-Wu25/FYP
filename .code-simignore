@@ -1,0 +1,10 @@
+# Tool internals and build junk
+/code_similarity_tool/
+**/__pycache__/
+venv/
+node_modules/
+.git/
+
+# Example: ignore synthetic samples
+src/testing/
+src/test_files/

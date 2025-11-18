@@ -2,20 +2,17 @@
 from __future__ import annotations
 
 import sys
-import hashlib
 import subprocess
 import logging
+import hashlib
 from pathlib import Path
 from typing import List, Dict, Optional, TypedDict, Set
 
 import voyageai
 from tree_sitter_language_pack import get_language, get_parser
 
-from .config import load_config
-from .selection import within_selection
-
-# --- local store wrapper ---
 from .clients import CodeVectorStore
+from .ignore import load_ignore_file, IgnoreMatcher
 
 # -------- Logging --------
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -23,16 +20,12 @@ log = logging.getLogger(__name__)
 
 # -------- Paths / constants --------
 THIS_FILE = Path(__file__).resolve()
-TOOL_DIR = THIS_FILE.parent                 # .../code_similarity_tool
-REPO_ROOT = TOOL_DIR.parent                 # repo root (tool lives at repo root)
+TOOL_DIR = THIS_FILE.parent
+REPO_ROOT = TOOL_DIR.parent
 DB_PATH = REPO_ROOT / ".git" / ".code-sim-db"
 COLLECTION_NAME = "project_code"
 METRIC = "cosine"
-
 SUPPORTED_SUFFIXES = {".py", ".java"}
-
-# load selection config once (used by the tiny guard below)
-CFG = load_config(REPO_ROOT)
 
 # -------- Types --------
 class CodeElement(TypedDict):
@@ -49,6 +42,9 @@ class QueryElement(TypedDict):
     file_path: str
 
 # -------- Helpers --------
+def _posix_rel(p: Path) -> str:
+    return str(p.resolve().relative_to(REPO_ROOT.resolve())).replace("\\", "/")
+
 def detect_lang(path: Path) -> Optional[str]:
     s = path.suffix.lower()
     if s == ".py":
@@ -63,7 +59,6 @@ def _slice(buf: bytes, node) -> str:
 def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[bytes]:
     """
     Read content from git. If commit_hash == '', read the INDEX (staged).
-    Returns None if the blob doesn't exist.
     """
     try:
         spec = f"{commit_hash}:{file_path}" if commit_hash else f":{file_path}"
@@ -73,7 +68,6 @@ def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[byte
         return None
 
 def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeElement]:
-    """Extract functions/methods using tree-sitter. Returns [] if buf is None or lang unsupported."""
     if not buf:
         return []
     lang = detect_lang(file_path)
@@ -88,7 +82,7 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
     if lang == "python":
         query_str = r"(function_definition) @decl"
         kind_map  = {"function_definition": "function"}
-    else:  # java
+    else:
         query_str = r"""
           (method_declaration) @decl
           (constructor_declaration) @decl
@@ -97,7 +91,6 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
 
     query = language.query(query_str)
     items: List[CodeElement] = []
-
     for _, caps in query.matches(root):
         decl_nodes = caps.get("decl")
         if not decl_nodes:
@@ -107,7 +100,6 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
         name = _slice(buf, name_node) if name_node else "<no-name>"
         text = _slice(buf, d)
 
-        # content-based id so renames/moves don't re-embed
         content_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
         items.append({
             "id": content_sha,
@@ -121,7 +113,6 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
     return items
 
 def _get_staged_added_modified() -> List[Path]:
-    """Return repo-absolute Paths for files staged as added/modified (diff-filter=AM)."""
     try:
         out = subprocess.check_output(
             ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM', '-z'],
@@ -134,7 +125,6 @@ def _get_staged_added_modified() -> List[Path]:
         return []
 
 def _get_staged_deletions() -> List[Path]:
-    """Return repo-absolute Paths for files staged as deleted (diff-filter=D)."""
     try:
         out = subprocess.check_output(
             ['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '-z'],
@@ -147,6 +137,7 @@ def _get_staged_deletions() -> List[Path]:
         return []
 
 def _is_junk(p: Path) -> bool:
+    # Extra belt-and-braces: we *also* skip tool internals here
     parts = set(p.parts)
     if any(seg in parts for seg in (".git", "venv", "__pycache__", "node_modules")):
         return True
@@ -182,10 +173,6 @@ class CodeProcessor:
         self.embedder = embedder
 
     def analyze_modified_file(self, file_path: Path):
-        """
-        Compare HEAD vs INDEX and return:
-          rel_for_git, new_elems, deleted_ids, deleted_names
-        """
         rel_for_git = str(file_path.relative_to(REPO_ROOT))
         log.info(f"Processing modified file: {rel_for_git}")
 
@@ -212,13 +199,11 @@ class CodeProcessor:
         return rel_for_git, new_elems, deleted_ids, deleted_names
 
     def process_deleted_file(self, rel_path: str):
-        """Remove all DB entries for a deleted file path (repo-relative)."""
         log.info(f"File deleted. Removing DB entries for: {rel_path}")
         num = self.store.delete_by_file_path(rel_path)
         log.info(f"Deleted {num} function(s).")
 
     def _show_query_results(self, results: Dict, query_element: QueryElement):
-        # Leading separator only; no trailing dashed line
         print("-" * 25)
         print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
         if not results.get('ids') or not results['ids'][0]:
@@ -232,19 +217,17 @@ class CodeProcessor:
             print("  -> No other similar items found in the database.\n")
             return
 
-        for i in range(1, len(ids)):  # skip exact self
+        for i in range(1, len(ids)):
             m = metas[i]
             print(f"\n  -> Found similar item (distance: {dists[i]:.4f})")
             print(f"     File: {m['file_path']}")
             print(f"     Function: {m['function_name']} (lines {m['start_line']}-{m['end_line']})")
-        print()  # blank line between blocks
+        print()
 
-# -------- Entry point for pre-commit --------
+# -------- Entry point --------
 def main():
-    # Ensure DB exists
     DB_PATH.mkdir(parents=True, exist_ok=True)
 
-    # Parse args (support --deleted and --with-deletions)
     args = sys.argv[1:]
     deleted_mode = False
     with_deletions = False
@@ -256,11 +239,12 @@ def main():
         with_deletions = True
         args = args[1:]
 
-    # 1) Start with files provided by pre-commit (argv)
-    from_precommit = [Path(p).resolve() for p in args]
+    matcher: IgnoreMatcher = load_ignore_file(REPO_ROOT)
 
-    # 2) Union with the *actual* staged-added/modified list from Git
+    # Union of argv + actually staged AM files
+    from_precommit = [Path(p).resolve() for p in args]
     staged_am_git = _get_staged_added_modified()
+
     union: List[Path] = []
     seen: Set[Path] = set()
     for p in from_precommit + staged_am_git:
@@ -272,8 +256,7 @@ def main():
             continue
         if p.suffix.lower() not in SUPPORTED_SUFFIXES:
             continue
-        # 🔒 tiny guard: honor Tk selection
-        if not within_selection(REPO_ROOT, p, CFG):
+        if not matcher.allows(p, is_dir=False):
             continue
         if p not in seen:
             seen.add(p)
@@ -283,7 +266,7 @@ def main():
     embedder = EmbeddingClient()
     proc     = CodeProcessor(store, embedder)
 
-    # Legacy deletion mode (treat argv as deletions only)
+    # Deletions-only mode
     if deleted_mode:
         if not union:
             log.info("No relevant files to process after filtering.")
@@ -293,7 +276,7 @@ def main():
             proc.process_deleted_file(rel)
         sys.exit(0)
 
-    # Analyze AM changes; batch embeddings across ALL files
+    # Analyze AM changes; batch embeddings
     all_new: List[CodeElement] = []
     all_new_rel_paths: List[str] = []
 
@@ -316,14 +299,12 @@ def main():
     else:
         log.info("No relevant files to process after filtering.")
 
-    # Single embed call for all new/changed functions
     if all_new:
         vectors = embedder.embed_documents([e["text"] for e in all_new])
         if vectors is None:
             log.error("Failed to get embeddings. Aborting update.")
             sys.exit(1)
 
-        # Upsert grouped by file path
         from collections import defaultdict
         by_file_elems: Dict[str, List[CodeElement]] = defaultdict(list)
         by_file_vecs:  Dict[str, List[List[float]]] = defaultdict(list)
@@ -335,7 +316,6 @@ def main():
             store.upsert_code_elements(by_file_elems[rel], by_file_vecs[rel], rel)
         log.info("Database updated successfully.")
 
-        # Similarity queries
         idx = 0
         for rel in by_file_elems:
             for el in by_file_elems[rel]:
@@ -343,11 +323,8 @@ def main():
                 proc._show_query_results(similar, {"name": el['name'], "file_path": rel})
                 idx += 1
 
-    # Optional: also purge staged deletions if requested
     if with_deletions:
         staged_deleted = _get_staged_deletions()
-        # 🔒 tiny guard: respect Tk selection for deletions too
-        staged_deleted = [p for p in staged_deleted if within_selection(REPO_ROOT, p, CFG)]
         if staged_deleted:
             log.info("Processing deletions...")
             for fp in staged_deleted:
@@ -355,7 +332,9 @@ def main():
                     rel = str(fp.relative_to(REPO_ROOT))
                 except ValueError:
                     continue
-                proc.process_deleted_file(rel)
+                # Only clean up if this path is *not* ignored
+                if matcher.allows(fp, is_dir=False):
+                    proc.process_deleted_file(rel)
 
     sys.exit(0)
 
