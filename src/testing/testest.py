@@ -6,7 +6,7 @@ def bob(a, b):
     print("done")
     
 def hi(x, y):
-    return x - y
+    return x + y
 
 
 

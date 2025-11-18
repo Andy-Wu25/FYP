@@ -16,7 +16,7 @@ public class Sample {
     }
 
     public static int hi(int a, int b) {
-        return a - b;
+        return a + b;
     }
 
     public static int bbbbbb(int a, int b) {
