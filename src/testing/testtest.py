@@ -10,7 +10,7 @@ def bob(x, y):
 
 def hehe(a, b):
     print("Hello, world!")
-    return a - b
+    return a + b
 
 
 def ace(x, y):
