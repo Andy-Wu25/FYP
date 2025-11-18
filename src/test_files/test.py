@@ -4,7 +4,7 @@ def hello_world():
 
 
     
-def minus(a, b):
+def hello(a, b):
     return a - b
 
 

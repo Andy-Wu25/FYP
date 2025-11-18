@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import sys
+import hashlib
 import subprocess
 import logging
-import hashlib
 from pathlib import Path
 from typing import List, Dict, Optional, TypedDict, Set
 
@@ -12,7 +12,7 @@ import voyageai
 from tree_sitter_language_pack import get_language, get_parser
 
 from .clients import CodeVectorStore
-from .ignore import load_ignore_file, IgnoreMatcher
+from .ignore import load_ignore_file
 
 # -------- Logging --------
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -20,12 +20,14 @@ log = logging.getLogger(__name__)
 
 # -------- Paths / constants --------
 THIS_FILE = Path(__file__).resolve()
-TOOL_DIR = THIS_FILE.parent
-REPO_ROOT = TOOL_DIR.parent
-DB_PATH = REPO_ROOT / ".git" / ".code-sim-db"
+TOOL_DIR  = THIS_FILE.parent                 # .../code_similarity_tool
+REPO_ROOT = TOOL_DIR.parent                  # repo root
+DB_PATH   = REPO_ROOT / ".git" / ".code-sim-db"
 COLLECTION_NAME = "project_code"
-METRIC = "cosine"
+METRIC          = "cosine"
+
 SUPPORTED_SUFFIXES = {".py", ".java"}
+
 
 # -------- Types --------
 class CodeElement(TypedDict):
@@ -37,13 +39,19 @@ class CodeElement(TypedDict):
     text: str
     hash: str
 
+
 class QueryElement(TypedDict):
     name: str
     file_path: str
 
+
 # -------- Helpers --------
-def _posix_rel(p: Path) -> str:
-    return str(p.resolve().relative_to(REPO_ROOT.resolve())).replace("\\", "/")
+def make_instance_id(rel_path: str, content_hash: str) -> str:
+    """
+    Stable per-file instance id: same body in different files => different id.
+    """
+    return hashlib.sha256(f"{rel_path}:{content_hash}".encode("utf-8")).hexdigest()
+
 
 def detect_lang(path: Path) -> Optional[str]:
     s = path.suffix.lower()
@@ -53,12 +61,15 @@ def detect_lang(path: Path) -> Optional[str]:
         return "java"
     return None
 
+
 def _slice(buf: bytes, node) -> str:
     return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+
 
 def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[bytes]:
     """
     Read content from git. If commit_hash == '', read the INDEX (staged).
+    Returns None if the blob doesn't exist.
     """
     try:
         spec = f"{commit_hash}:{file_path}" if commit_hash else f":{file_path}"
@@ -67,7 +78,12 @@ def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[byte
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
+
 def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeElement]:
+    """
+    Extract functions/methods using tree-sitter.
+    Returns [] if buf is None or language unsupported.
+    """
     if not buf:
         return []
     lang = detect_lang(file_path)
@@ -82,7 +98,7 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
     if lang == "python":
         query_str = r"(function_definition) @decl"
         kind_map  = {"function_definition": "function"}
-    else:
+    else:  # java
         query_str = r"""
           (method_declaration) @decl
           (constructor_declaration) @decl
@@ -91,6 +107,7 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
 
     query = language.query(query_str)
     items: List[CodeElement] = []
+
     for _, caps in query.matches(root):
         decl_nodes = caps.get("decl")
         if not decl_nodes:
@@ -102,7 +119,7 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
 
         content_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
         items.append({
-            "id": content_sha,
+            "id": content_sha,  # will be overwritten with per-file instance id later
             "name": name,
             "kind": kind_map.get(d.type, d.type),
             "start_line": d.start_point[0] + 1,
@@ -112,7 +129,9 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
         })
     return items
 
+
 def _get_staged_added_modified() -> List[Path]:
+    """Return repo-absolute Paths for files staged as added/modified (diff-filter=AM)."""
     try:
         out = subprocess.check_output(
             ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM', '-z'],
@@ -124,7 +143,9 @@ def _get_staged_added_modified() -> List[Path]:
     except Exception:
         return []
 
+
 def _get_staged_deletions() -> List[Path]:
+    """Return repo-absolute Paths for files staged as deleted (diff-filter=D)."""
     try:
         out = subprocess.check_output(
             ['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '-z'],
@@ -136,14 +157,6 @@ def _get_staged_deletions() -> List[Path]:
     except Exception:
         return []
 
-def _is_junk(p: Path) -> bool:
-    # Extra belt-and-braces: we *also* skip tool internals here
-    parts = set(p.parts)
-    if any(seg in parts for seg in (".git", "venv", "__pycache__", "node_modules")):
-        return True
-    if TOOL_DIR in p.parents:
-        return True
-    return False
 
 # -------- Embedding --------
 class EmbeddingClient:
@@ -166,6 +179,7 @@ class EmbeddingClient:
             log.error(f"Voyage embedding failed: {e}")
             return None
 
+
 # -------- Main Processor --------
 class CodeProcessor:
     def __init__(self, store: CodeVectorStore, embedder: EmbeddingClient):
@@ -173,6 +187,10 @@ class CodeProcessor:
         self.embedder = embedder
 
     def analyze_modified_file(self, file_path: Path):
+        """
+        Compare HEAD vs INDEX and return:
+          rel_for_git, new_elems, deleted_ids, deleted_names
+        """
         rel_for_git = str(file_path.relative_to(REPO_ROOT))
         log.info(f"Processing modified file: {rel_for_git}")
 
@@ -185,51 +203,66 @@ class CodeProcessor:
         before_el = extract_code_elements(file_path, before) if before else []
         after_el  = extract_code_elements(file_path, after)
 
-        before_map = {e['hash']: e for e in before_el}
-        after_map  = {e['hash']: e for e in after_el}
+        # Attach per-file instance ids
+        for el in before_el:
+            el["id"] = make_instance_id(rel_for_git, el["hash"])
+        for el in after_el:
+            el["id"] = make_instance_id(rel_for_git, el["hash"])
 
-        deleted_ids   = list(set(before_map.keys()) - set(after_map.keys()))
-        to_add_ids    = list(set(after_map.keys())  - set(before_map.keys()))
-        new_elems     = [after_map[h] for h in to_add_ids]
-        deleted_names = [before_map[h]['name'] for h in deleted_ids if h in before_map]
+        # Diff by content hash
+        before_map = {e["hash"]: e for e in before_el}
+        after_map  = {e["hash"]: e for e in after_el}
+
+        deleted_hashes = list(set(before_map.keys()) - set(after_map.keys()))
+        added_hashes   = list(set(after_map.keys())  - set(before_map.keys()))
+
+        new_elems     = [after_map[h] for h in added_hashes]
+        deleted_ids   = [before_map[h]["id"] for h in deleted_hashes]
+        deleted_names = [before_map[h]["name"] for h in deleted_hashes]
 
         if not new_elems and not deleted_ids:
             log.info(f"[skip] No function-level changes in: {rel_for_git}")
+            return rel_for_git, [], [], []
 
         return rel_for_git, new_elems, deleted_ids, deleted_names
 
     def process_deleted_file(self, rel_path: str):
+        """Remove all DB entries for a deleted file path (repo-relative)."""
         log.info(f"File deleted. Removing DB entries for: {rel_path}")
         num = self.store.delete_by_file_path(rel_path)
         log.info(f"Deleted {num} function(s).")
 
     def _show_query_results(self, results: Dict, query_element: QueryElement):
+        # Leading separator only; no trailing dashed line
         print("-" * 25)
         print(f"Query for code similar to '{query_element['name']}' in '{query_element['file_path']}':")
         if not results.get('ids') or not results['ids'][0]:
             print("  -> Query returned no results.\n")
             return
 
-        ids = results['ids'][0]
+        ids   = results['ids'][0]
         dists = results['distances'][0]
         metas = results['metadatas'][0]
         if len(ids) < 2:
             print("  -> No other similar items found in the database.\n")
             return
 
-        for i in range(1, len(ids)):
+        for i in range(1, len(ids)):  # skip exact self
             m = metas[i]
             print(f"\n  -> Found similar item (distance: {dists[i]:.4f})")
             print(f"     File: {m['file_path']}")
             print(f"     Function: {m['function_name']} (lines {m['start_line']}-{m['end_line']})")
-        print()
+        print()  # blank line between blocks
 
-# -------- Entry point --------
+
+# -------- Entry point for pre-commit --------
 def main():
+    # Ensure DB exists
     DB_PATH.mkdir(parents=True, exist_ok=True)
 
+    # Parse args (support --deleted and --with-deletions)
     args = sys.argv[1:]
-    deleted_mode = False
+    deleted_mode   = False
     with_deletions = False
 
     if args and args[0] == "--deleted":
@@ -239,12 +272,14 @@ def main():
         with_deletions = True
         args = args[1:]
 
-    matcher: IgnoreMatcher = load_ignore_file(REPO_ROOT)
-
-    # Union of argv + actually staged AM files
+    # From pre-commit (argv)
     from_precommit = [Path(p).resolve() for p in args]
-    staged_am_git = _get_staged_added_modified()
+    # From git staged AM
+    staged_am_git  = _get_staged_added_modified()
 
+    matcher = load_ignore_file(REPO_ROOT)
+
+    # Union the two sets, apply filters + ignore
     union: List[Path] = []
     seen: Set[Path] = set()
     for p in from_precommit + staged_am_git:
@@ -252,9 +287,9 @@ def main():
             p.relative_to(REPO_ROOT)
         except ValueError:
             continue
-        if _is_junk(p):
-            continue
         if p.suffix.lower() not in SUPPORTED_SUFFIXES:
+            continue
+        if ".git" in p.parts:
             continue
         if not matcher.allows(p, is_dir=False):
             continue
@@ -266,7 +301,7 @@ def main():
     embedder = EmbeddingClient()
     proc     = CodeProcessor(store, embedder)
 
-    # Deletions-only mode
+    # Legacy deletion-only mode
     if deleted_mode:
         if not union:
             log.info("No relevant files to process after filtering.")
@@ -276,7 +311,7 @@ def main():
             proc.process_deleted_file(rel)
         sys.exit(0)
 
-    # Analyze AM changes; batch embeddings
+    # Analyze AM changes; batch embeddings across ALL files
     all_new: List[CodeElement] = []
     all_new_rel_paths: List[str] = []
 
@@ -299,12 +334,14 @@ def main():
     else:
         log.info("No relevant files to process after filtering.")
 
+    # Single embed call for all new/changed functions
     if all_new:
         vectors = embedder.embed_documents([e["text"] for e in all_new])
         if vectors is None:
             log.error("Failed to get embeddings. Aborting update.")
             sys.exit(1)
 
+        # Upsert grouped by file path
         from collections import defaultdict
         by_file_elems: Dict[str, List[CodeElement]] = defaultdict(list)
         by_file_vecs:  Dict[str, List[List[float]]] = defaultdict(list)
@@ -316,6 +353,7 @@ def main():
             store.upsert_code_elements(by_file_elems[rel], by_file_vecs[rel], rel)
         log.info("Database updated successfully.")
 
+        # Similarity queries (for user feedback)
         idx = 0
         for rel in by_file_elems:
             for el in by_file_elems[rel]:
@@ -323,6 +361,7 @@ def main():
                 proc._show_query_results(similar, {"name": el['name'], "file_path": rel})
                 idx += 1
 
+    # Optionally also purge staged deletions of whole files
     if with_deletions:
         staged_deleted = _get_staged_deletions()
         if staged_deleted:
@@ -332,11 +371,13 @@ def main():
                     rel = str(fp.relative_to(REPO_ROOT))
                 except ValueError:
                     continue
-                # Only clean up if this path is *not* ignored
-                if matcher.allows(fp, is_dir=False):
-                    proc.process_deleted_file(rel)
+                abs_p = (REPO_ROOT / rel).resolve()
+                if not matcher.allows(abs_p, is_dir=False):
+                    continue
+                proc.process_deleted_file(rel)
 
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
