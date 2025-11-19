@@ -1,0 +1,4 @@
+[console_scripts]
+code-sim-hook = code_similarity_tool.code_similarity:main
+code-sim-index = code_similarity_tool.index:main
+code-sim-init-ignore = code_similarity_tool.cli:init_ignore

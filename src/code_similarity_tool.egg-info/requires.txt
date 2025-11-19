@@ -1,0 +1,7 @@
+voyageai==0.3.5
+chromadb==1.1.1
+tree-sitter==0.23.2
+tree-sitter-language-pack==0.9.1
+tree-sitter-python==0.25.0
+tree-sitter-java==0.23.5
+pre-commit>=3.0

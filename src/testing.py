@@ -13,5 +13,5 @@ def hi(a, b):
     return a + b
 
 
-def awdawdawd(x, y):
+def abcd(x, y):
     return x - y

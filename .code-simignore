@@ -4,6 +4,3 @@
 venv/
 node_modules/
 .git/
-
-# Example: ignore synthetic samples
-src/test_files/
