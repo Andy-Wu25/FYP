@@ -20,8 +20,11 @@ log = logging.getLogger(__name__)
 
 # -------- Paths / constants --------
 THIS_FILE = Path(__file__).resolve()
-TOOL_DIR  = THIS_FILE.parent                 # .../code_similarity_tool
-REPO_ROOT = TOOL_DIR.parent                  # repo root
+TOOL_DIR  = THIS_FILE.parent
+
+# Repo root is the directory where the user runs the CLI (project root)
+REPO_ROOT = Path.cwd().resolve()
+
 DB_PATH   = REPO_ROOT / ".git" / ".code-sim-db"
 COLLECTION_NAME = "project_code"
 METRIC          = "cosine"

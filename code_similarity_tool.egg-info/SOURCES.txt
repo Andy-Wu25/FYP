@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+code_similarity_tool/__init__.py
+code_similarity_tool/cli.py
+code_similarity_tool/clients.py
+code_similarity_tool/code_parser.py
+code_similarity_tool/code_similarity.py
+code_similarity_tool/ignore.py
+code_similarity_tool/index.py
+code_similarity_tool.egg-info/PKG-INFO
+code_similarity_tool.egg-info/SOURCES.txt
+code_similarity_tool.egg-info/dependency_links.txt
+code_similarity_tool.egg-info/entry_points.txt
+code_similarity_tool.egg-info/requires.txt
+code_similarity_tool.egg-info/top_level.txt
