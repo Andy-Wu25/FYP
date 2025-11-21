@@ -69,7 +69,7 @@ def _slice(buf: bytes, node) -> str:
     return buf[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 
-def get_file_content_from_git(commit_hash: str, file_path: str) -> Optional[bytes]:
+def get_git_file_content(commit_hash: str, file_path: str) -> Optional[bytes]:
     """
     Read content from git. If commit_hash == '', read the INDEX (staged).
     Returns None if the blob doesn't exist.
@@ -133,7 +133,7 @@ def extract_code_elements(file_path: Path, buf: Optional[bytes]) -> List[CodeEle
     return items
 
 
-def _get_staged_added_modified() -> List[Path]:
+def get_staged_added_modified() -> List[Path]:
     """Return repo-absolute Paths for files staged as added/modified (diff-filter=AM)."""
     try:
         out = subprocess.check_output(
@@ -147,7 +147,7 @@ def _get_staged_added_modified() -> List[Path]:
         return []
 
 
-def _get_staged_deletions() -> List[Path]:
+def get_staged_deletions() -> List[Path]:
     """Return repo-absolute Paths for files staged as deleted (diff-filter=D)."""
     try:
         out = subprocess.check_output(
@@ -197,8 +197,8 @@ class CodeProcessor:
         rel_for_git = str(file_path.relative_to(REPO_ROOT))
         log.info(f"Processing modified file: {rel_for_git}")
 
-        before = get_file_content_from_git('HEAD', rel_for_git)
-        after  = get_file_content_from_git('',     rel_for_git)
+        before = get_git_file_content('HEAD', rel_for_git)
+        after  = get_git_file_content('',     rel_for_git)
         if not after:
             log.info(f"[skip] Cannot read staged content for: {rel_for_git}")
             return rel_for_git, [], [], []
@@ -278,7 +278,7 @@ def main():
     # From pre-commit (argv)
     from_precommit = [Path(p).resolve() for p in args]
     # From git staged AM
-    staged_am_git  = _get_staged_added_modified()
+    staged_am_git  = get_staged_added_modified()
 
     matcher = load_ignore_file(REPO_ROOT)
 
@@ -300,9 +300,9 @@ def main():
             seen.add(p)
             union.append(p)
 
-    store    = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
+    store = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
     embedder = EmbeddingClient()
-    proc     = CodeProcessor(store, embedder)
+    proc = CodeProcessor(store, embedder)
 
     # Legacy deletion-only mode
     if deleted_mode:
@@ -366,7 +366,7 @@ def main():
 
     # Optionally also purge staged deletions of whole files
     if with_deletions:
-        staged_deleted = _get_staged_deletions()
+        staged_deleted = get_staged_deletions()
         if staged_deleted:
             log.info("Processing deletions...")
             for fp in staged_deleted:
