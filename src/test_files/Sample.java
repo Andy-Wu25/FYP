@@ -11,7 +11,7 @@ public class Sample {
         }
     }
 
-    public static int aaaaaa(int a, int b) {
+    public static int adawawd(int a, int b) {
         return a + b;
     }
 
@@ -33,6 +33,10 @@ public class Sample {
 
     public static int dddddd(int a, int b) {
         return a / b;
+    }
+
+    public static void unusedMethod() {
+        System.out.println("This method is never called.");
     }
 
 }
