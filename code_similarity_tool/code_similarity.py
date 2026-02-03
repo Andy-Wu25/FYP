@@ -4,18 +4,32 @@ from __future__ import annotations
 import sys
 import hashlib
 import subprocess
+import requests
 import logging
+import os
 from pathlib import Path
-from typing import List, Dict, Optional, TypedDict, Set
+from typing import List, Tuple, Optional, Dict, Any, TypedDict, Set
 
-import voyageai
 from tree_sitter_language_pack import get_language, get_parser
 
 from .clients import CodeVectorStore
 from .ignore import load_ignore_file
 
 # -------- Logging --------
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+LOG_LEVEL = os.getenv("CODE_SIM_LOG_LEVEL", "INFO").upper()
+LOG_FORCE = os.getenv("CODE_SIM_LOG_FORCE", "0").lower() in {"1", "true", "yes"}
+try:
+    logging.basicConfig(
+        level=getattr(logging, LOG_LEVEL, logging.INFO),
+        format='[%(levelname)s] %(message)s',
+        force=LOG_FORCE,
+    )
+except TypeError:
+    # Python < 3.8 doesn't support force=
+    logging.basicConfig(
+        level=getattr(logging, LOG_LEVEL, logging.INFO),
+        format='[%(levelname)s] %(message)s',
+    )
 log = logging.getLogger(__name__)
 
 # -------- Paths / constants --------
@@ -162,28 +176,162 @@ def get_staged_deletions() -> List[Path]:
 
 
 # -------- Embedding --------
+class VoyageEmbedder:
+    """VoyageAI embedding backend."""
+    def __init__(self, api_key: Optional[str], model: str = "voyage-code-2", input_type: str = "document"):
+        if not api_key:
+            raise ValueError("VOYAGE_API_KEY is not set, cannot use VoyageAI backend")
+        try:
+            import voyageai  # type: ignore
+        except ImportError as e:
+            raise RuntimeError("voyageai is not installed in this environment") from e
+        self._model = model
+        self._input_type = input_type
+        self._client = voyageai.Client(api_key=api_key)
+        log.info("Embeddings backend=voyageai model=%s", self._model)
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        log.debug("VoyageAI embed request: n_texts=%d", len(texts))
+        result = self._client.embed(texts, model=self._model, input_type=self._input_type)
+        embeddings = result.embeddings
+        if embeddings and isinstance(embeddings[0], list):
+            log.debug("VoyageAI embed response: n=%d dim=%d", len(embeddings), len(embeddings[0]))
+        return embeddings
+
+
+class VLLMEmbedder:
+    """OpenAI-compatible embeddings backend served by vLLM."""
+    def __init__(self, base_url: str, api_key: Optional[str], model: str, timeout_s: float = 60.0):
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
+        self._model = model
+        self._timeout_s = timeout_s
+        auth = "set" if api_key else "not-set"
+        log.info("Embeddings backend=vllm base_url=%s model=%s auth=%s", self._base_url, self._model, auth)
+        self._maybe_log_server_models()
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def _maybe_log_server_models(self) -> None:
+        verify = os.getenv("CODE_SIM_VLLM_VERIFY_MODELS", "1").lower() not in {"0", "false", "no"}
+        if not verify:
+            log.debug("Skipping vLLM /v1/models verification (CODE_SIM_VLLM_VERIFY_MODELS=0)")
+            return
+        models_url = f"{self._base_url}/v1/models"
+        try:
+            timeout = float(os.getenv("CODE_SIM_VLLM_MODELS_TIMEOUT", "5"))
+            log.debug("Querying vLLM /v1/models with timeout=%ss", timeout)
+            r = requests.get(models_url, headers=self._headers(), timeout=timeout)
+            if r.status_code == 401:
+                log.warning("vLLM /v1/models returned 401 Unauthorized (check VLLM_API_KEY / server --api-key)")
+                return
+            r.raise_for_status()
+            payload = r.json()
+            ids = [m.get("id") for m in payload.get("data", []) if isinstance(m, dict)]
+            if ids:
+                preview = ", ".join(ids[:5]) + ("..." if len(ids) > 5 else "")
+                log.info("vLLM server reports %d model(s): %s", len(ids), preview)
+                if self._model not in ids:
+                    log.warning("Configured VLLM_MODEL=%s not found in /v1/models (still continuing)", self._model)
+            else:
+                log.info("vLLM /v1/models responded but returned no model ids")
+        except Exception as e:
+            log.warning("Could not query vLLM /v1/models at %s (%s)", models_url, e)
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        url = f"{self._base_url}/v1/embeddings"
+        payload: Dict[str, Any] = {"model": self._model, "input": texts}
+        log.debug("vLLM embed request: url=%s model=%s n_texts=%d", url, self._model, len(texts))
+        try:
+            r = requests.post(url, headers=self._headers(), json=payload, timeout=self._timeout_s)
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Failed to reach vLLM embeddings endpoint at {url}: {e}") from e
+
+        if r.status_code == 401:
+            raise RuntimeError("vLLM returned 401 Unauthorized. Ensure your curl works with Authorization: Bearer $VLLM_API_KEY and that your code exports VLLM_API_KEY.")
+
+        r.raise_for_status()
+        data = r.json()
+        resp_model = data.get("model")
+        if resp_model:
+            log.info("vLLM embeddings response model=%s", resp_model)
+        items = data.get("data", [])
+        if not isinstance(items, list) or not items:
+            raise RuntimeError(f"Unexpected embeddings response format: {data}")
+        embeddings = [item["embedding"] for item in items]
+        if embeddings and isinstance(embeddings[0], list):
+            log.debug("vLLM embed response: n=%d dim=%d", len(embeddings), len(embeddings[0]))
+        return embeddings
+
+
 class EmbeddingClient:
-    def __init__(self, model: str = "voyage-code-2"):
-        try:
-            self.client = voyageai.Client()
-            self.model  = model
-            log.info("Voyage AI client initialized.")
-        except Exception as e:
-            log.error(f"Voyage AI client init failed (set VOYAGE_API_KEY): {e}")
-            sys.exit(1)
+    """Unified embedding client. Chooses VoyageAI or vLLM based on environment."""
+    def __init__(self):
+        # Explicit override if you want to force a backend
+        backend = (
+            os.getenv("CODE_SIM_EMBEDDINGS_BACKEND")
+            or os.getenv("EMBEDDINGS_BACKEND")
+            or ""
+        ).strip().lower()
 
-    def embed_documents(self, texts: List[str]) -> Optional[List[List[float]]]:
-        if not texts:
-            return []
-        try:
-            res = self.client.embed(texts, model=self.model, input_type="document")
-            return res.embeddings
-        except Exception as e:
-            log.error(f"Voyage embedding failed: {e}")
-            return None
+        # Auto-detect backend if not specified
+        if not backend:
+            if os.getenv("VLLM_BASE_URL") or os.getenv("VLLM_API_KEY") or os.getenv("VLLM_MODEL"):
+                backend = "vllm"
+            elif os.getenv("VOYAGE_API_KEY"):
+                backend = "voyage"
+            else:
+                backend = "voyage"  # keep previous default, but will error with a clearer message
 
+        self.backend = backend
+        self._impl: Any
 
-# -------- Main Processor --------
+        if backend == "vllm":
+            base_url = os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8000")
+            api_key = os.getenv("VLLM_API_KEY")
+            model = os.getenv("VLLM_MODEL", "Octen/Octen-Embedding-8B")
+            timeout_s = float(os.getenv("VLLM_TIMEOUT_S", "60"))
+            self._impl = VLLMEmbedder(base_url=base_url, api_key=api_key, model=model, timeout_s=timeout_s)
+            log.info("Using vLLM embeddings backend")
+        elif backend in {"voyage", "voyageai"}:
+            api_key = os.getenv("VOYAGE_API_KEY")
+            model = os.getenv("VOYAGE_MODEL", "voyage-code-2")
+            input_type = os.getenv("VOYAGE_INPUT_TYPE", "document")
+            self._impl = VoyageEmbedder(api_key=api_key, model=model, input_type=input_type)
+            log.info("Using VoyageAI embeddings backend")
+        else:
+            raise ValueError(f"Unknown embeddings backend '{backend}'. Use CODE_SIM_EMBEDDINGS_BACKEND=vllm or voyage.")
+
+    @property
+    def model(self) -> str:
+        return getattr(self._impl, "model", "unknown")
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        log.info("Embedding request backend=%s model=%s n_texts=%d", self.backend, self.model, len(texts))
+        return self._impl.embed(texts)
+
+    # Compatibility with LangChain-style embedding interface used elsewhere in the code.
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Alias for embed(texts)."""
+        return self.embed(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query string and return the vector."""
+        vecs = self.embed([text])
+        return vecs[0] if vecs else []
+
 class CodeProcessor:
     def __init__(self, store: CodeVectorStore, embedder: EmbeddingClient):
         self.store = store
@@ -314,7 +462,7 @@ def main():
             proc.process_deleted_file(rel)
         sys.exit(0)
 
-    # Analyze AM changes; batch embeddings across ALL files
+    # Analyze AM changes; batch embeddings across all files
     all_new: List[CodeElement] = []
     all_new_rel_paths: List[str] = []
 

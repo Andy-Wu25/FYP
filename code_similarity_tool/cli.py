@@ -9,15 +9,15 @@ def init_ignore():
         print(f".code-simignore already exists at {path}")
         return
     template = """# Code similarity ignore file
-/code_similarity_tool/
-**/__pycache__/
-venv/
-node_modules/
-.git/
+    /code_similarity_tool/
+    **/__pycache__/
+    venv/
+    node_modules/
+    .git/
 
-# Example: ignore tests
-tests/
-"""
+    # Example: ignore tests
+    tests/
+    """
     path.write_text(template, encoding="utf-8")
     print(f"Created {path}")
 

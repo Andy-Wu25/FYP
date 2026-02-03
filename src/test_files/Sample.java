@@ -19,6 +19,10 @@ public class Sample {
         return a + b;
     }
 
+    public static void heyyyy(String[] args) {
+        System.out.println("This is another main method.");
+    }
+
     public static int bbbbbb(int a, int b) {
         return a - b;
     }
@@ -27,5 +31,8 @@ public class Sample {
         return a * b;
     }
 
-    
+    public static int dddddd(int a, int b) {
+        return a / b;
+    }
+
 }
