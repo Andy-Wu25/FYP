@@ -9,26 +9,18 @@ from .clients import CodeVectorStore
 from .embeddings import EmbeddingClient
 
 
-def _include_private_hit_factory(query_repo_id: str):
-    def _include_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
-        # Skip exact self match from same repo/file/content
-        if (
-            meta.get("repo_id") == query_repo_id
-            and meta.get("file_path") == query_rel
-            and meta.get("content_hash") == query_hash
-        ):
-            return False
-        return True
-
-    return _include_hit
+def _include_public_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
+    _ = query_rel
+    _ = query_hash
+    return True
 
 
 def main() -> None:
     log = configure_logging()
 
     parser = argparse.ArgumentParser(
-        prog="code-sim-check",
-        description="Read-only similarity check for staged code against private org-scoped vector DB.",
+        prog="code-sim-check-public",
+        description="Read-only similarity check for staged code against central public GNU index.",
     )
     parser.add_argument("paths", nargs="*", help="Optional paths to include (must be staged).")
     parser.add_argument("--top-k", type=int, default=5)
@@ -48,10 +40,9 @@ def main() -> None:
         return
 
     log.info(
-        "Checking %d code element(s) from %d staged file(s) in private org '%s'.",
+        "Checking %d code element(s) from %d staged file(s) against public index.",
         len(query_elements),
         len(rel_paths),
-        ctx.org_id,
     )
 
     embedder = EmbeddingClient()
@@ -64,26 +55,24 @@ def main() -> None:
         metric=ctx.metric,
     )
     pool_size = max(top_k * 4, 20)
-
-    include_hit = _include_private_hit_factory(ctx.repo_id)
     total_hits = 0
 
     for (rel_path, element), vector in zip(query_elements, vectors):
-        results = store.query_private_by_embedding(vector, org_id=ctx.org_id, n_results=pool_size)
+        results = store.query_public_by_embedding(vector, n_results=pool_size)
         hits = extract_hits(
             results,
             top_k=top_k,
             max_distance=args.max_distance,
             query_rel=rel_path,
             query_hash=element["hash"],
-            include_hit=include_hit,
+            include_hit=_include_public_hit,
         )
 
         print("-" * 72)
         print(f"Query: {element['name']} ({rel_path}:{element['start_line']}-{element['end_line']})")
 
         if not hits:
-            print("  No private-org similar items found.")
+            print("  No public-index similar items found.")
             continue
 
         total_hits += len(hits)
@@ -94,12 +83,13 @@ def main() -> None:
                 f"repo={meta.get('repo_name', '<unknown>')} "
                 f"file={meta.get('file_path', '<unknown>')} "
                 f"function={meta.get('function_name', '<unknown>')} "
-                f"lines={meta.get('start_line', '?')}-{meta.get('end_line', '?')}"
+                f"license={meta.get('license', '<unknown>')} "
+                f"source={meta.get('source_url', '<unknown>')}"
             )
 
     print("=" * 72)
     print(
-        f"Checked {len(query_elements)} code element(s); found {total_hits} private similar match(es) in org '{ctx.org_id}'."
+        f"Checked {len(query_elements)} code element(s); found {total_hits} public similar match(es)."
     )
 
 

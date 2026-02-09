@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import logging
 import os
+import subprocess
 from collections import defaultdict
 from typing import Dict, List
 
@@ -10,6 +12,7 @@ from .clients import CodeVectorStore
 from .code_parser import CodeElement, extract_code_elements, make_element_id
 from .embeddings import EmbeddingClient
 from .ignore import load_ignore_file
+from .public_index import index_public_github_repo, parse_github_url
 from .runtime import iter_repo_source_files, load_runtime_context
 
 
@@ -24,7 +27,13 @@ def sync_current_repo(action_name: str = "index") -> int:
     ctx = load_runtime_context()
 
     log.info("[%s] org=%s repo=%s root=%s", action_name, ctx.org_id, ctx.repo_name, ctx.repo_root)
-    log.info("[%s] db=%s collection=%s", action_name, ctx.db_path, ctx.collection_name)
+    log.info(
+        "[%s] db=%s private_collection=%s public_collection=%s",
+        action_name,
+        ctx.db_path,
+        ctx.private_collection_name,
+        ctx.public_collection_name,
+    )
 
     matcher = load_ignore_file(ctx.repo_root)
     files = iter_repo_source_files(ctx.repo_root, matcher)
@@ -42,8 +51,13 @@ def sync_current_repo(action_name: str = "index") -> int:
             all_elements.extend(elements)
             rel_paths_for_element.extend([rel_path] * len(elements))
 
-    store = CodeVectorStore(path=str(ctx.db_path), collection_name=ctx.collection_name, metric=ctx.metric)
-    removed = store.delete_repo_entries(ctx.org_id, ctx.repo_id)
+    store = CodeVectorStore(
+        path=str(ctx.db_path),
+        private_collection_name=ctx.private_collection_name,
+        public_collection_name=ctx.public_collection_name,
+        metric=ctx.metric,
+    )
+    removed = store.delete_private_repo_entries(ctx.org_id, ctx.repo_id)
     if removed:
         log.info("[%s] removed %d stale element(s) for repo_id=%s", action_name, removed, ctx.repo_id)
 
@@ -63,13 +77,15 @@ def sync_current_repo(action_name: str = "index") -> int:
 
     total = 0
     for rel_path in by_file_elements:
-        store.upsert_code_elements(
+        store.upsert_private_code_elements(
             by_file_elements[rel_path],
             by_file_vectors[rel_path],
-            org_id=ctx.org_id,
-            repo_id=ctx.repo_id,
-            repo_name=ctx.repo_name,
-            file_path=rel_path,
+            base_metadata={
+                "org_id": ctx.org_id,
+                "repo_id": ctx.repo_id,
+                "repo_name": ctx.repo_name,
+                "file_path": rel_path,
+            },
         )
         total += len(by_file_elements[rel_path])
 
@@ -78,6 +94,32 @@ def sync_current_repo(action_name: str = "index") -> int:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="code-sim-index",
+        description=(
+            "Index current repository into private org scope, or index a GNU-licensed "
+            "public GitHub repository when a URL is provided."
+        ),
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Optional GitHub URL. If omitted, index current repository private scope.",
+    )
+    parser.add_argument("--url", default=None, help="GitHub URL to index into public scope.")
+    parser.add_argument("--ref", default=None, help="Optional git ref for public indexing.")
+    args = parser.parse_args()
+
+    public_url = args.url or args.target
+    if public_url:
+        try:
+            parse_github_url(public_url)
+            index_public_github_repo(public_url, ref=args.ref)
+        except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
+            parser.error(str(exc))
+        return
+
     sync_current_repo(action_name="index")
 
 

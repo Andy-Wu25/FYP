@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from code_similarity_tool.code_similarity import _extract_hits
+from code_similarity_tool.check_utils import extract_hits
+
+
+def _include_private(meta, query_rel: str, query_hash: str) -> bool:
+    return not (
+        meta.get("repo_id") == "repo-1"
+        and meta.get("file_path") == query_rel
+        and meta.get("content_hash") == query_hash
+    )
 
 
 class ExtractHitsTest(unittest.TestCase):
@@ -32,13 +40,13 @@ class ExtractHitsTest(unittest.TestCase):
             ]],
         }
 
-        hits = _extract_hits(
+        hits = extract_hits(
             results,
             top_k=5,
             max_distance=None,
             query_rel="a.py",
             query_hash="h1",
-            query_repo_id="repo-1",
+            include_hit=_include_private,
         )
 
         self.assertEqual(len(hits), 1)
@@ -54,13 +62,13 @@ class ExtractHitsTest(unittest.TestCase):
             ]],
         }
 
-        hits = _extract_hits(
+        hits = extract_hits(
             results,
             top_k=5,
             max_distance=0.5,
             query_rel="q.py",
             query_hash="q",
-            query_repo_id="r1",
+            include_hit=lambda *_: True,
         )
 
         self.assertEqual(len(hits), 1)

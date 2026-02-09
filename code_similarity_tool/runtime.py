@@ -17,7 +17,8 @@ class RuntimeContext:
     repo_id: str
     org_id: str
     db_path: Path
-    collection_name: str
+    private_collection_name: str
+    public_collection_name: str
     metric: str
 
 
@@ -72,7 +73,15 @@ def load_runtime_context(start: Optional[Path] = None) -> RuntimeContext:
         os.getenv("CODE_SIM_DB_PATH", str(Path.home() / ".code-sim" / "chroma"))
     ).expanduser().resolve()
 
-    collection_name = os.getenv("CODE_SIM_COLLECTION", "project_code").strip() or "project_code"
+    base_collection = os.getenv("CODE_SIM_COLLECTION", "project_code").strip() or "project_code"
+    private_collection_name = (
+        os.getenv("CODE_SIM_PRIVATE_COLLECTION", f"{base_collection}_private").strip()
+        or f"{base_collection}_private"
+    )
+    public_collection_name = (
+        os.getenv("CODE_SIM_PUBLIC_COLLECTION", f"{base_collection}_public").strip()
+        or f"{base_collection}_public"
+    )
     metric = os.getenv("CODE_SIM_METRIC", "cosine").strip() or "cosine"
 
     return RuntimeContext(
@@ -81,7 +90,8 @@ def load_runtime_context(start: Optional[Path] = None) -> RuntimeContext:
         repo_id=repo_id,
         org_id=org_id,
         db_path=db_path,
-        collection_name=collection_name,
+        private_collection_name=private_collection_name,
+        public_collection_name=public_collection_name,
         metric=metric,
     )
 
