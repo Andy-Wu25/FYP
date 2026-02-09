@@ -2,120 +2,83 @@
 from __future__ import annotations
 
 import logging
-import hashlib
-from pathlib import Path
-from typing import List
+import os
+from collections import defaultdict
+from typing import Dict, List
 
-from .code_similarity import extract_code_elements, EmbeddingClient
 from .clients import CodeVectorStore
+from .code_parser import CodeElement, extract_code_elements, make_element_id
+from .embeddings import EmbeddingClient
 from .ignore import load_ignore_file
-
-# -------- Logging --------
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-log = logging.getLogger(__name__)
-
-# -------- Paths / constants --------
-THIS_FILE = Path(__file__).resolve()
-TOOL_DIR  = THIS_FILE.parent
-
-# Repo root is the directory where the user runs the CLI (project root)
-REPO_ROOT = Path.cwd().resolve()
-
-DB_PATH         = REPO_ROOT / ".git" / ".code-sim-db"
-COLLECTION_NAME = "project_code"
-METRIC          = "cosine"
-
-SUPPORTED_SUFFIXES = {".py", ".java"}
+from .runtime import iter_repo_source_files, load_runtime_context
 
 
-def make_instance_id(rel_path: str, content_hash: str) -> str:
-    """
-    Stable per-file instance id: same body in different files => different id.
-    """
-    return hashlib.sha256(f"{rel_path}:{content_hash}".encode("utf-8")).hexdigest()
+def _configure_logging() -> logging.Logger:
+    log_level = os.getenv("CODE_SIM_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=getattr(logging, log_level, logging.INFO), format="[%(levelname)s] %(message)s")
+    return logging.getLogger(__name__)
 
 
-def _iter_candidate_files(repo_root: Path, matcher) -> List[Path]:
-    """
-    Walk the repo and return candidate source files, respecting .code-simignore.
-    """
-    out: List[Path] = []
-    for p in repo_root.rglob("*"):
-        if not p.is_file():
-            continue
-        if p.suffix.lower() not in SUPPORTED_SUFFIXES:
-            continue
-        # be defensive: never index inside .git even if user forgets ignore
-        if ".git" in p.parts:
-            continue
-        if not matcher.allows(p, is_dir=False):
-            continue
-        out.append(p)
-    return sorted(out)
+def sync_current_repo(action_name: str = "index") -> int:
+    log = _configure_logging()
+    ctx = load_runtime_context()
 
+    log.info("[%s] org=%s repo=%s root=%s", action_name, ctx.org_id, ctx.repo_name, ctx.repo_root)
+    log.info("[%s] db=%s collection=%s", action_name, ctx.db_path, ctx.collection_name)
 
-def main():
-    # Ensure DB path exists
-    DB_PATH.mkdir(parents=True, exist_ok=True)
+    matcher = load_ignore_file(ctx.repo_root)
+    files = iter_repo_source_files(ctx.repo_root, matcher)
 
-    store    = CodeVectorStore(path=str(DB_PATH), collection_name=COLLECTION_NAME, metric=METRIC)
-    embedder = EmbeddingClient()
-    matcher  = load_ignore_file(REPO_ROOT)
+    all_elements: List[CodeElement] = []
+    rel_paths_for_element: List[str] = []
 
-    log.info("ChromaDB client initialized. Collection: %s", COLLECTION_NAME)
-    log.info("--- Starting Initial Project Indexing ---")
-    log.info("Resetting collection...")
-    store.reset_collection()
+    for file_path in files:
+        rel_path = str(file_path.relative_to(ctx.repo_root))
+        elements = extract_code_elements(file_path, file_path.read_bytes())
+        for element in elements:
+            element["id"] = make_element_id(ctx.org_id, ctx.repo_id, rel_path, element["hash"])
 
-    files = _iter_candidate_files(REPO_ROOT, matcher)
-    for f in files:
-        log.info("  -> Scanning: %s", f.relative_to(REPO_ROOT))
+        if elements:
+            all_elements.extend(elements)
+            rel_paths_for_element.extend([rel_path] * len(elements))
 
-    # 1) Extract all elements first
-    all_elements = []
-    file_for_element: List[str] = []
-    for f in files:
-        buf = f.read_bytes()
-        rel = str(f.relative_to(REPO_ROOT))
-
-        els = extract_code_elements(f, buf)
-
-        # Attach per-file instance ids (same body in different files => different id)
-        for el in els:
-            el["id"] = make_instance_id(rel, el["hash"])
-
-        if els:
-            all_elements.extend(els)
-            file_for_element.extend([rel] * len(els))
+    store = CodeVectorStore(path=str(ctx.db_path), collection_name=ctx.collection_name, metric=ctx.metric)
+    removed = store.delete_repo_entries(ctx.org_id, ctx.repo_id)
+    if removed:
+        log.info("[%s] removed %d stale element(s) for repo_id=%s", action_name, removed, ctx.repo_id)
 
     if not all_elements:
-        log.info("\nFound a total of 0 functions/methods to index.")
-        log.info("\n✅ Initial indexing complete!")
-        log.info("DB path: %s", DB_PATH)
-        return
+        log.info("[%s] no functions/methods found after ignore rules.", action_name)
+        return 0
 
-    # 2) Single embed call for all functions/methods
-    vectors = embedder.embed_documents([e["text"] for e in all_elements])
-    if vectors is None:
-        log.error("Failed to embed elements. Aborting.")
-        return
+    embedder = EmbeddingClient()
+    vectors = embedder.embed_documents([element["text"] for element in all_elements])
 
-    # 3) Upsert grouped per file
-    from collections import defaultdict
-    bucket = defaultdict(lambda: {"elements": [], "vectors": []})
+    by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
+    by_file_vectors: Dict[str, List[List[float]]] = defaultdict(list)
 
-    for e, v, rel in zip(all_elements, vectors, file_for_element):
-        bucket[rel]["elements"].append(e)
-        bucket[rel]["vectors"].append(v)
+    for element, vector, rel_path in zip(all_elements, vectors, rel_paths_for_element):
+        by_file_elements[rel_path].append(element)
+        by_file_vectors[rel_path].append(vector)
 
     total = 0
-    for rel_path, pack in bucket.items():
-        store.upsert_code_elements(pack["elements"], pack["vectors"], rel_path)
-        total += len(pack["elements"])
+    for rel_path in by_file_elements:
+        store.upsert_code_elements(
+            by_file_elements[rel_path],
+            by_file_vectors[rel_path],
+            org_id=ctx.org_id,
+            repo_id=ctx.repo_id,
+            repo_name=ctx.repo_name,
+            file_path=rel_path,
+        )
+        total += len(by_file_elements[rel_path])
 
-    log.info("\nFound a total of %d functions/methods to index.", total)
-    log.info("\n✅ Initial indexing complete!")
-    log.info("DB path: %s", DB_PATH)
+    log.info("[%s] indexed %d code element(s) across %d file(s).", action_name, total, len(by_file_elements))
+    return total
+
+
+def main() -> None:
+    sync_current_repo(action_name="index")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,0 @@
-[console_scripts]
-code-sim-check = code_similarity_tool.code_similarity:main
-code-sim-ignore = code_similarity_tool.cli:init_ignore
-code-sim-index = code_similarity_tool.index:main
-code-sim-install-hook = code_similarity_tool.cli:install_git_hook

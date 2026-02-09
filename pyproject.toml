@@ -4,22 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-similarity-tool"
-version = "0.1.0"
-description = "Git-integrated code similarity detector using embeddings"
+version = "0.2.0"
+description = "Git-integrated, org-wide code similarity detector using Tree-sitter, vLLM, and ChromaDB"
 requires-python = ">=3.11"
 authors = [{ name = "Andy Wu" }]
 
 dependencies = [
   "chromadb==1.1.1",
-  "tree-sitter==0.23.2",
   "tree-sitter-language-pack==0.9.1",
-  "tree-sitter-python==0.25.0",
-  "tree-sitter-java==0.23.5",
   "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
 ]
 
 [project.scripts]
 code-sim-index        = "code_similarity_tool.index:main"
+code-sim-update       = "code_similarity_tool.update:main"
 code-sim-check        = "code_similarity_tool.code_similarity:main"
 code-sim-ignore       = "code_similarity_tool.cli:init_ignore"
 code-sim-install-hook = "code_similarity_tool.cli:install_git_hook"

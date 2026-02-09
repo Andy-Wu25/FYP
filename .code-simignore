@@ -1,8 +1,8 @@
-# Tool internals and build junk
-/code_similarity_tool/
+# Code similarity ignore file
+.git/
 **/__pycache__/
 venv/
+.venv/
 node_modules/
-.git/
-
-src/testing.py
+dist/
+build/

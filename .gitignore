@@ -1,11 +1,25 @@
-# Python
+# Python caches
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 
-# Chroma DB
+# Environments
+venv/
+.venv/
+
+# Packaging/build artifacts
+*.egg-info/
+dist/
+build/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+
+# Code-sim local DB paths (if configured inside repo)
+.code-sim-db/
 .git/.code-sim-db/
 
-# venv
-venv/
+# macOS
+.DS_Store

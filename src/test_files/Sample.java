@@ -39,4 +39,8 @@ public class Sample {
         System.out.println("This method is never called.");
     }
 
+    public static void anotherUnusedMethod() {
+        System.out.println("This method is also never called.");
+    }
+
 }
