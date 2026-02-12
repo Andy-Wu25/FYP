@@ -129,6 +129,15 @@ class CodeVectorStore:
             n_results=n_results,
         )
 
+    def query_private_repo_by_embedding(
+        self, embedding: List[float], *, org_id: str, repo_id: str, n_results: int = 8
+    ) -> Dict[str, Any]:
+        return self.private_collection.query(
+            query_embeddings=[embedding],
+            where=self._where_private_repo(org_id, repo_id),
+            n_results=n_results,
+        )
+
     def query_public_by_embedding(self, embedding: List[float], *, n_results: int = 8) -> Dict[str, Any]:
         return self.public_collection.query(
             query_embeddings=[embedding],

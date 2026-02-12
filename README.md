@@ -9,6 +9,7 @@ Code Similarity Tool compares staged functions/methods against two datasets:
 
 1. Read-only checks
 - `code-sim-check` and `code-sim-check-private` query private org data only.
+- `code-sim-check-self` queries the current repository scope only (within private data).
 - `code-sim-check-public` queries public GNU index only.
 - Query functions are limited to code elements that overlap staged hunks.
 - These commands never update the database.
@@ -59,6 +60,8 @@ pip install -e .
   - Alias of `code-sim-check-private`.
 - `code-sim-check-private`
   - Compare staged code against private org index.
+- `code-sim-check-self`
+  - Compare staged code against only the current repository's private index entries.
 - `code-sim-check-public`
   - Compare staged code against public GNU index.
 - `code-sim-update`
