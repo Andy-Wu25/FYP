@@ -13,6 +13,7 @@ from .runtime import (
     load_runtime_context,
     read_index_blob,
     staged_added_modified_renamed,
+    staged_hunk_line_ranges,
 )
 
 HitFilter = Callable[[Dict, str, str], bool]
@@ -57,10 +58,30 @@ def collect_staged_query_elements(repo_root: Path, rel_paths: List[str]) -> List
         if staged_content is None:
             continue
 
+        changed_ranges = staged_hunk_line_ranges(repo_root, rel_path)
+        if not changed_ranges:
+            continue
+
         for element in extract_code_elements(Path(rel_path), staged_content):
+            if not _element_overlaps_any_changed_range(
+                element["start_line"], element["end_line"], changed_ranges
+            ):
+                continue
             out.append((rel_path, element))
 
     return out
+
+
+def _element_overlaps_any_changed_range(
+    start_line: int, end_line: int, changed_ranges: List[Tuple[int, int]]
+) -> bool:
+    for changed_start, changed_end in changed_ranges:
+        if changed_end < start_line:
+            continue
+        if changed_start > end_line:
+            continue
+        return True
+    return False
 
 
 def extract_hits(

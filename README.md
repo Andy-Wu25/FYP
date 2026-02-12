@@ -10,6 +10,7 @@ Code Similarity Tool compares staged functions/methods against two datasets:
 1. Read-only checks
 - `code-sim-check` and `code-sim-check-private` query private org data only.
 - `code-sim-check-public` queries public GNU index only.
+- Query functions are limited to code elements that overlap staged hunks.
 - These commands never update the database.
 
 2. Write paths

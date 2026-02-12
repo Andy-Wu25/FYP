@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Set
+from typing import List, Optional, Sequence, Set, Tuple
 
 SUPPORTED_SUFFIXES: Set[str] = {".py", ".java"}
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,49 @@ def staged_added_modified_renamed(repo_root: Path) -> List[str]:
 
     rel_paths = [p.decode("utf-8") for p in proc.stdout.split(b"\x00") if p]
     return sorted(set(rel_paths))
+
+
+def parse_staged_new_ranges(diff_text: str) -> List[Tuple[int, int]]:
+    ranges: List[Tuple[int, int]] = []
+
+    for line in diff_text.splitlines():
+        match = _HUNK_RE.match(line)
+        if not match:
+            continue
+
+        start = int(match.group("start"))
+        count_raw = match.group("count")
+        count = int(count_raw) if count_raw is not None else 1
+        if count <= 0:
+            end = start
+        else:
+            end = start + count - 1
+
+        ranges.append((start, end))
+
+    if not ranges:
+        return []
+
+    ranges.sort()
+    merged: List[Tuple[int, int]] = [ranges[0]]
+    for start, end in ranges[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end + 1:
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def staged_hunk_line_ranges(repo_root: Path, rel_path: str) -> List[Tuple[int, int]]:
+    proc = _git_cmd_optional(
+        repo_root,
+        ["diff", "--cached", "--unified=0", "--no-color", "--", rel_path],
+        text=True,
+    )
+    if not proc:
+        return []
+    return parse_staged_new_ranges(proc.stdout)
 
 
 def iter_repo_source_files(repo_root: Path, matcher) -> List[Path]:
