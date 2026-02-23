@@ -13,6 +13,7 @@ from .check_utils import (
 )
 from .clients import CodeVectorStore
 from .embeddings import EmbeddingClient
+from .public_links import build_public_commit_permalink, build_public_match_permalink
 
 
 def _include_public_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
@@ -99,6 +100,11 @@ def main() -> None:
 
         total_hits += len(hits)
         for idx, (distance, meta) in enumerate(hits, start=1):
+            permalink = build_public_match_permalink(meta)
+            commit_url = meta.get("source_commit_url")
+            if not isinstance(commit_url, str) or not commit_url.strip():
+                commit_url = build_public_commit_permalink(meta)
+
             print(
                 "  "
                 f"{idx}. distance={distance:.4f} "
@@ -106,8 +112,12 @@ def main() -> None:
                 f"file={meta.get('file_path', '<unknown>')} "
                 f"function={meta.get('function_name', '<unknown>')} "
                 f"license={meta.get('license', '<unknown>')} "
-                f"source={meta.get('source_url', '<unknown>')}"
+                f"commit={meta.get('source_commit', '<unknown>')}"
             )
+            if permalink:
+                print(f"     permalink={permalink}")
+            if commit_url:
+                print(f"     commit_url={commit_url}")
 
     print("=" * 72)
     print(

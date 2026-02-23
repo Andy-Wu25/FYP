@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List
+from typing import List, Optional
 
 import requests
 
@@ -30,14 +30,19 @@ class EmbeddingClient:
             "false",
         }
         self.batch_size = max(1, int(os.getenv("VLLM_BATCH_SIZE", "64")))
+        self.max_chars = max(0, int(os.getenv("VLLM_MAX_CHARS", "16000")))
+        self.input_prefix = os.getenv("VLLM_INPUT_PREFIX", "")
 
         log.info(
-            "Embeddings backend=vllm base_url=%s model=%s batch=%d auth=%s",
+            "Embeddings backend=vllm base_url=%s model=%s batch=%d max_chars=%s auth=%s",
             self.base_url,
             self.model,
             self.batch_size,
+            str(self.max_chars) if self.max_chars > 0 else "disabled",
             "set" if self.api_key else "none",
         )
+        if self.input_prefix:
+            log.info("Using input prefix %r for all embedding inputs.", self.input_prefix)
 
         if self.verify_models:
             self._log_available_models()
@@ -88,13 +93,46 @@ class EmbeddingClient:
             )
         return embeddings
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: List[str], *, labels: Optional[List[str]] = None) -> List[List[float]]:
         if not texts:
             return []
+        if labels is not None and len(labels) != len(texts):
+            raise ValueError("labels length must match texts length.")
+
+        if self.max_chars > 0:
+            capped: List[str] = []
+            for i, text in enumerate(texts):
+                if len(text) > self.max_chars:
+                    label = labels[i] if labels is not None else f"index {i}"
+                    log.warning(
+                        "Input too long (%d chars); truncating to %d chars (%s).",
+                        len(text),
+                        self.max_chars,
+                        label,
+                    )
+                    capped.append(text[: self.max_chars])
+                else:
+                    capped.append(text)
+            texts = capped
+
+        if self.input_prefix:
+            texts = [self.input_prefix + t for t in texts]
 
         all_vectors: List[List[float]] = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
             log.info("Embedding batch %d-%d of %d", i + 1, i + len(batch), len(texts))
-            all_vectors.extend(self._embed_batch(batch))
+            try:
+                all_vectors.extend(self._embed_batch(batch))
+            except Exception as exc:  # noqa: BLE001
+                details = ""
+                if labels is not None:
+                    label_batch = labels[i : i + len(batch)]
+                    preview = "; ".join(label_batch[:3])
+                    if len(label_batch) > 3:
+                        preview += "; ..."
+                    details = f" labels=[{preview}]"
+                raise RuntimeError(
+                    f"Embedding batch {i + 1}-{i + len(batch)} of {len(texts)} failed.{details}"
+                ) from exc
         return all_vectors

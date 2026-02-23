@@ -70,6 +70,7 @@ pip install -e .
   - Compare code against only the current repository's private index entries (`--scope staged|files|repo`).
 - `code-sim-check-public`
   - Compare code against public GNU index (`--scope staged|files|repo`).
+  - Output includes commit-pinned GitHub permalink to the matched file/line and commit URL.
 - `code-sim-update`
   - Sync current repo to private org index.
 - `code-sim-index`
@@ -77,6 +78,7 @@ pip install -e .
   - With URL (`code-sim-index --url ...` or positional URL): public GNU indexing path.
 - `code-sim-index-public <url>`
   - Explicit operator command for public indexing.
+  - `--debug-element-index N` prints the Nth collected public element and exits (for embedding failure diagnosis).
 - `code-sim-install-hook --stage pre-push`
   - Install pre-push hook to run `code-sim-update`.
 

@@ -16,6 +16,7 @@ from .code_parser import CodeElement, extract_code_elements
 from .embeddings import EmbeddingClient
 from .ignore import load_ignore_file
 from .language_detection import has_language_hint, is_probably_binary
+from .public_links import build_github_blob_url, build_github_commit_url
 from .runtime import load_runtime_context
 from .source_filtering import is_noise_source_path
 
@@ -169,6 +170,16 @@ def _public_element_id(public_source_id: str, rel_path: str, content_hash: str) 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _public_element_label(index_1_based: int, rel_path: str, element: CodeElement) -> str:
+    return (
+        f"#{index_1_based} file={rel_path} "
+        f"name={element.get('name', '<unknown>')} "
+        f"kind={element.get('kind', '<unknown>')} "
+        f"lines={element.get('start_line', '?')}-{element.get('end_line', '?')} "
+        f"chars={len(element.get('text', ''))}"
+    )
+
+
 def iter_public_repo_source_files(repo_root: Path) -> List[Path]:
     matcher = load_ignore_file(repo_root)
     try:
@@ -198,7 +209,12 @@ def iter_public_repo_source_files(repo_root: Path) -> List[Path]:
     return sorted(out)
 
 
-def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
+def index_public_github_repo(
+    url: str,
+    ref: Optional[str] = None,
+    *,
+    debug_element_index: Optional[int] = None,
+) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
 
@@ -233,6 +249,22 @@ def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
                 all_elements.extend(elements)
                 rel_paths_for_element.extend([rel_path] * len(elements))
 
+    if debug_element_index is not None:
+        if debug_element_index < 1 or debug_element_index > len(all_elements):
+            raise RuntimeError(
+                f"--debug-element-index must be between 1 and {len(all_elements)} for this source."
+            )
+        idx0 = debug_element_index - 1
+        element = all_elements[idx0]
+        rel_path = rel_paths_for_element[idx0]
+        print(_public_element_label(debug_element_index, rel_path, element))
+        preview = element.get("text", "")
+        preview = preview[:800]
+        print("----- element preview (first 800 chars) -----")
+        print(preview)
+        print("---------------------------------------------")
+        return 0
+
     store = CodeVectorStore(
         path=str(ctx.db_path),
         private_collection_name=ctx.private_collection_name,
@@ -248,7 +280,14 @@ def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
         return 0
 
     embedder = EmbeddingClient()
-    vectors = embedder.embed_documents([element["text"] for element in all_elements])
+    labels = [
+        _public_element_label(i + 1, rel_path, element)
+        for i, (rel_path, element) in enumerate(zip(rel_paths_for_element, all_elements))
+    ]
+    vectors = embedder.embed_documents(
+        [element["text"] for element in all_elements],
+        labels=labels,
+    )
 
     by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
     by_file_vectors: Dict[str, List[List[float]]] = defaultdict(list)
@@ -272,6 +311,8 @@ def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
                 "source_owner": owner,
                 "source_repo": repo,
                 "source_commit": commit_sha,
+                "source_commit_url": build_github_commit_url(canonical_url, commit_sha),
+                "source_file_url": build_github_blob_url(canonical_url, commit_sha, rel_path),
                 "license": license_id,
             },
         )
@@ -293,10 +334,19 @@ def main() -> None:
     )
     parser.add_argument("url", help="GitHub repository URL (https://github.com/<owner>/<repo>)")
     parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/sha). Defaults to HEAD.")
+    parser.add_argument(
+        "--debug-element-index",
+        type=int,
+        default=None,
+        help=(
+            "Print one collected element (1-based index in embedding order) and exit "
+            "without indexing. Useful for diagnosing embedding failures."
+        ),
+    )
     args = parser.parse_args()
 
     try:
-        index_public_github_repo(args.url, ref=args.ref)
+        index_public_github_repo(args.url, ref=args.ref, debug_element_index=args.debug_element_index)
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))
 
