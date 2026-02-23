@@ -245,11 +245,11 @@ def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
         public_collection_name=ctx.public_collection_name,
         metric=ctx.metric,
     )
-    removed = store.delete_public_source_entries(public_source_id)
-    if removed:
-        log.info("[public-index] removed %d stale element(s) for source id %s", removed, public_source_id)
 
     if not all_elements:
+        removed = store.delete_public_source_entries(public_source_id)
+        if removed:
+            log.info("[public-index] removed %d stale element(s) for source id %s", removed, public_source_id)
         log.info("[public-index] no indexable functions/methods found.")
         return 0
 
@@ -282,6 +282,11 @@ def index_public_github_repo(url: str, ref: Optional[str] = None) -> int:
             },
         )
         total += len(by_file_elements[rel_path])
+
+    current_ids = [element["id"] for element in all_elements]
+    removed = store.delete_public_source_stale_entries(public_source_id, keep_ids=current_ids)
+    if removed:
+        log.info("[public-index] removed %d stale element(s) for source id %s", removed, public_source_id)
 
     log.info("[public-index] indexed %d code element(s) from %s@%s", total, canonical_url, commit_sha)
     return total

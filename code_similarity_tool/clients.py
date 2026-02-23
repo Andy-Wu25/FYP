@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import chromadb
 from chromadb.config import Settings
@@ -52,6 +52,14 @@ class CodeVectorStore:
             collection.delete(ids=ids[i : i + chunk_size])
         return len(ids)
 
+    @staticmethod
+    def _compute_stale_ids(existing_ids: List[str], keep_ids: Set[str]) -> List[str]:
+        if not existing_ids:
+            return []
+        if not keep_ids:
+            return existing_ids
+        return [id_ for id_ in existing_ids if id_ not in keep_ids]
+
     def delete_private_repo_entries(self, org_id: str, repo_id: str) -> int:
         existing = self.private_collection.get(where=self._where_private_repo(org_id, repo_id))
         ids = existing.get("ids") or []
@@ -61,6 +69,18 @@ class CodeVectorStore:
         existing = self.public_collection.get(where=self._where_public_source(public_source_id))
         ids = existing.get("ids") or []
         return self._delete_ids_in_chunks(self.public_collection, ids)
+
+    def delete_private_repo_stale_entries(self, org_id: str, repo_id: str, keep_ids: List[str]) -> int:
+        existing = self.private_collection.get(where=self._where_private_repo(org_id, repo_id))
+        ids = existing.get("ids") or []
+        stale_ids = self._compute_stale_ids(ids, set(keep_ids))
+        return self._delete_ids_in_chunks(self.private_collection, stale_ids)
+
+    def delete_public_source_stale_entries(self, public_source_id: str, keep_ids: List[str]) -> int:
+        existing = self.public_collection.get(where=self._where_public_source(public_source_id))
+        ids = existing.get("ids") or []
+        stale_ids = self._compute_stale_ids(ids, set(keep_ids))
+        return self._delete_ids_in_chunks(self.public_collection, stale_ids)
 
     def _upsert_code_elements(
         self,
