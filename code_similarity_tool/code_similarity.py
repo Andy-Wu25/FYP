@@ -32,7 +32,12 @@ def main() -> None:
     )
     parser.add_argument("paths", nargs="*", help="Optional paths to include (must be staged).")
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--max-distance", type=float, default=None)
+    parser.add_argument(
+        "--max-distance",
+        type=float,
+        default=None,
+        help="Maximum allowed distance (inclusive). Lower values are more similar.",
+    )
     args = parser.parse_args()
 
     top_k = max(1, args.top_k)
