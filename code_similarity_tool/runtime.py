@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from .language_detection import has_language_hint, is_probably_binary
+from .source_filtering import is_noise_source_path
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 
@@ -171,9 +172,9 @@ def iter_repo_source_files(repo_root: Path, matcher) -> List[Path]:
     for path in repo_root.rglob("*"):
         if not path.is_file():
             continue
-        if ".git" in path.parts:
-            continue
         if not matcher.allows(path, is_dir=False):
+            continue
+        if is_noise_source_path(path):
             continue
         if not has_language_hint(path):
             continue

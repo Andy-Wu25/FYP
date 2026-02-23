@@ -17,6 +17,7 @@ from .runtime import (
     staged_added_modified_renamed,
     staged_hunk_line_ranges,
 )
+from .source_filtering import is_noise_source_path
 
 HitFilter = Callable[[Dict, str, str], bool]
 QUERY_SCOPES = ("staged", "files", "repo")
@@ -77,9 +78,9 @@ def collect_staged_query_elements(repo_root: Path, rel_paths: List[str]) -> List
 
     for rel_path in rel_paths:
         abs_path = (repo_root / rel_path).resolve()
-        if ".git" in abs_path.parts:
-            continue
         if not matcher.allows(abs_path, is_dir=False):
+            continue
+        if is_noise_source_path(abs_path):
             continue
         if not has_language_hint(abs_path):
             continue
@@ -115,9 +116,9 @@ def collect_full_file_query_elements(repo_root: Path, rel_paths: List[str]) -> L
         abs_path = (repo_root / rel_path).resolve()
         if not abs_path.is_file():
             continue
-        if ".git" in abs_path.parts:
-            continue
         if not matcher.allows(abs_path, is_dir=False):
+            continue
+        if is_noise_source_path(abs_path):
             continue
         if not has_language_hint(abs_path):
             continue

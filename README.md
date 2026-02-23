@@ -31,6 +31,7 @@ Code Similarity Tool compares code elements against two datasets:
 4. Parsing and Embeddings
 - Uses all grammars available in installed `tree-sitter-language-pack`.
 - For files where no tree-sitter grammar is available (or no declaration-like elements are extracted), the full file is embedded as one element.
+- Built-in noise filters skip docs, lockfiles, generated/vendor/cache folders, media/binaries, secrets/certs, and minified bundles.
 - vLLM OpenAI-compatible API (`/v1/embeddings`)
 - default model: `Octen/Octen-Embedding-8B`
 

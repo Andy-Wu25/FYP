@@ -17,6 +17,7 @@ from .embeddings import EmbeddingClient
 from .ignore import load_ignore_file
 from .language_detection import has_language_hint, is_probably_binary
 from .runtime import load_runtime_context
+from .source_filtering import is_noise_source_path
 
 
 GITHUB_URL_RE = re.compile(
@@ -175,26 +176,13 @@ def iter_public_repo_source_files(repo_root: Path) -> List[Path]:
     except ValueError:
         max_file_bytes = 250000
 
-    excluded_dirs = {
-        ".git",
-        "node_modules",
-        "venv",
-        ".venv",
-        "dist",
-        "build",
-        "target",
-        "vendor",
-        ".mypy_cache",
-        ".pytest_cache",
-    }
-
     out: List[Path] = []
     for path in repo_root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in excluded_dirs for part in path.parts):
-            continue
         if not matcher.allows(path, is_dir=False):
+            continue
+        if is_noise_source_path(path):
             continue
         if not has_language_hint(path):
             continue
