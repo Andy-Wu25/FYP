@@ -1,6 +1,6 @@
 # Code Similarity Tool
 
-Code Similarity Tool compares staged functions/methods against two datasets:
+Code Similarity Tool compares code elements against two datasets:
 
 - private organization code (stored in private collection)
 - central public GNU-licensed code (stored in public collection)
@@ -11,7 +11,10 @@ Code Similarity Tool compares staged functions/methods against two datasets:
 - `code-sim-check` and `code-sim-check-private` query private org data only.
 - `code-sim-check-self` queries the current repository scope only (within private data).
 - `code-sim-check-public` queries public GNU index only.
-- Query functions are limited to code elements that overlap staged hunks.
+- Query scope is configurable with `--scope`:
+  - `staged` (default): code elements overlapping staged hunks.
+  - `files`: whole provided file(s), staged or unstaged.
+  - `repo`: whole current repository.
 - These commands never update the database.
 
 2. Write paths
@@ -25,7 +28,9 @@ Code Similarity Tool compares staged functions/methods against two datasets:
 - Private data is partitioned by `org_id` and `repo_id`.
 - Public data is partitioned by `public_source_id` derived from `url + commit`.
 
-4. Embeddings
+4. Parsing and Embeddings
+- Uses all grammars available in installed `tree-sitter-language-pack`.
+- For files where no tree-sitter grammar is available (or no declaration-like elements are extracted), the full file is embedded as one element.
 - vLLM OpenAI-compatible API (`/v1/embeddings`)
 - default model: `Octen/Octen-Embedding-8B`
 
@@ -59,11 +64,11 @@ pip install -e .
 - `code-sim-check`
   - Alias of `code-sim-check-private`.
 - `code-sim-check-private`
-  - Compare staged code against private org index.
+  - Compare code against private org index (`--scope staged|files|repo`).
 - `code-sim-check-self`
-  - Compare staged code against only the current repository's private index entries.
+  - Compare code against only the current repository's private index entries (`--scope staged|files|repo`).
 - `code-sim-check-public`
-  - Compare staged code against public GNU index.
+  - Compare code against public GNU index (`--scope staged|files|repo`).
 - `code-sim-update`
   - Sync current repo to private org index.
 - `code-sim-index`
@@ -94,7 +99,7 @@ pip install -e .
 - `CODE_SIM_LOG_LEVEL`
   - `INFO` / `DEBUG`
 - `CODE_SIM_MAX_FILE_BYTES`
-  - Max file size for public indexing scan. Default: `250000`
+  - Max file size for private/public indexing and query file scans. Default: `250000`
 - `VLLM_BASE_URL`
   - Default: `http://127.0.0.1:8000`
 - `VLLM_API_KEY`
@@ -120,6 +125,18 @@ git add .
 
 ```bash
 code-sim-check-private
+```
+
+or check unstaged whole file(s):
+
+```bash
+code-sim-check-private --scope files path/to/file.ext
+```
+
+or check the whole repository:
+
+```bash
+code-sim-check-private --scope repo
 ```
 
 3. commit

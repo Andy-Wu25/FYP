@@ -6,9 +6,10 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Tuple
 
-SUPPORTED_SUFFIXES: Set[str] = {".py", ".java"}
+from .language_detection import has_language_hint, is_probably_binary
+
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 
 
@@ -162,15 +163,26 @@ def staged_hunk_line_ranges(repo_root: Path, rel_path: str) -> List[Tuple[int, i
 
 
 def iter_repo_source_files(repo_root: Path, matcher) -> List[Path]:
+    try:
+        max_file_bytes = max(1, int(os.getenv("CODE_SIM_MAX_FILE_BYTES", "250000")))
+    except ValueError:
+        max_file_bytes = 250000
     out: List[Path] = []
     for path in repo_root.rglob("*"):
         if not path.is_file():
             continue
-        if path.suffix.lower() not in SUPPORTED_SUFFIXES:
-            continue
         if ".git" in path.parts:
             continue
         if not matcher.allows(path, is_dir=False):
+            continue
+        if not has_language_hint(path):
+            continue
+        try:
+            if path.stat().st_size > max_file_bytes:
+                continue
+            if is_probably_binary(path.read_bytes()[:4096]):
+                continue
+        except OSError:
             continue
         out.append(path)
     return sorted(out)

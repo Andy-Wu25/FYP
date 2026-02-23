@@ -15,7 +15,8 @@ from .clients import CodeVectorStore
 from .code_parser import CodeElement, extract_code_elements
 from .embeddings import EmbeddingClient
 from .ignore import load_ignore_file
-from .runtime import SUPPORTED_SUFFIXES, load_runtime_context
+from .language_detection import has_language_hint, is_probably_binary
+from .runtime import load_runtime_context
 
 
 GITHUB_URL_RE = re.compile(
@@ -169,7 +170,10 @@ def _public_element_id(public_source_id: str, rel_path: str, content_hash: str) 
 
 def iter_public_repo_source_files(repo_root: Path) -> List[Path]:
     matcher = load_ignore_file(repo_root)
-    max_file_bytes = int(os.getenv("CODE_SIM_MAX_FILE_BYTES", "250000"))
+    try:
+        max_file_bytes = max(1, int(os.getenv("CODE_SIM_MAX_FILE_BYTES", "250000")))
+    except ValueError:
+        max_file_bytes = 250000
 
     excluded_dirs = {
         ".git",
@@ -188,14 +192,16 @@ def iter_public_repo_source_files(repo_root: Path) -> List[Path]:
     for path in repo_root.rglob("*"):
         if not path.is_file():
             continue
-        if path.suffix.lower() not in SUPPORTED_SUFFIXES:
-            continue
         if any(part in excluded_dirs for part in path.parts):
             continue
         if not matcher.allows(path, is_dir=False):
             continue
+        if not has_language_hint(path):
+            continue
         try:
             if path.stat().st_size > max_file_bytes:
+                continue
+            if is_probably_binary(path.read_bytes()[:4096]):
                 continue
         except OSError:
             continue

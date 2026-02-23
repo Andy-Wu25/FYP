@@ -143,6 +143,35 @@ class ReindexSafetyTest(unittest.TestCase):
             store.upsert_private_code_elements.assert_not_called()
             embedder_cls.assert_not_called()
 
+    def test_private_sync_indexes_unsupported_language_as_file_element(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            file_path = repo_root / "a.foolang"
+            file_path.write_text("hello unsupported language", encoding="utf-8")
+
+            ctx = _runtime_ctx(repo_root)
+            store = Mock()
+            matcher = Mock()
+            matcher.allows.return_value = True
+            embedder = Mock()
+            embedder.embed_documents.return_value = [[0.1, 0.2]]
+
+            with patch("code_similarity_tool.index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.index.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.index.iter_repo_source_files", return_value=[file_path]
+            ), patch(
+                "code_similarity_tool.index.CodeVectorStore", return_value=store
+            ), patch(
+                "code_similarity_tool.index.EmbeddingClient", return_value=embedder
+            ):
+                total = sync_current_repo(action_name="index")
+
+            self.assertEqual(total, 1)
+            args = store.upsert_private_code_elements.call_args.args
+            elements = args[0]
+            self.assertEqual(elements[0]["kind"], "file")
+
     def test_public_index_does_not_delete_when_embedding_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
@@ -177,6 +206,40 @@ class ReindexSafetyTest(unittest.TestCase):
             store.delete_public_source_entries.assert_not_called()
             store.delete_public_source_stale_entries.assert_not_called()
             store.upsert_public_code_elements.assert_not_called()
+
+    def test_public_index_indexes_unsupported_language_as_file_element(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            ctx = _runtime_ctx(repo_root)
+            store = Mock()
+            store.delete_public_source_stale_entries.return_value = 0
+            embedder = Mock()
+            embedder.embed_documents.return_value = [[0.1, 0.2]]
+
+            def _clone(_url: str, _sha: str, repo_dir: Path) -> None:
+                repo_dir.mkdir(parents=True, exist_ok=True)
+                (repo_dir / "a.foolang").write_text("hello unsupported language", encoding="utf-8")
+
+            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.public_index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            ), patch(
+                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+            ), patch(
+                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                side_effect=lambda repo_dir: [repo_dir / "a.foolang"],
+            ), patch(
+                "code_similarity_tool.public_index.CodeVectorStore", return_value=store
+            ), patch(
+                "code_similarity_tool.public_index.EmbeddingClient", return_value=embedder
+            ):
+                total = index_public_github_repo("https://github.com/example/demo")
+
+            self.assertEqual(total, 1)
+            args = store.upsert_public_code_elements.call_args.args
+            elements = args[0]
+            self.assertEqual(elements[0]["kind"], "file")
 
     def test_public_index_upserts_then_prunes_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

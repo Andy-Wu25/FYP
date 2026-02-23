@@ -12,6 +12,7 @@ authors = [{ name = "Andy Wu" }]
 dependencies = [
   "chromadb==1.1.1",
   "tree-sitter-language-pack==0.9.1",
+  "identify>=2.6.0",
   "requests>=2.31.0",
 ]
 
