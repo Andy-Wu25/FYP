@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from code_similarity_tool.public_index import (
     _get_file_last_commit,
+    detect_public_license,
     ensure_gnu_license,
     index_public_github_repo,
     parse_github_url,
@@ -33,21 +34,34 @@ class PublicIndexTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_github_url("https://gitlab.com/user/demo")
 
-    def test_ensure_gnu_license_accepts_gpl(self) -> None:
+    def test_detect_public_license_accepts_gpl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "LICENSE").write_text(
                 "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n",
                 encoding="utf-8",
             )
-            self.assertEqual(ensure_gnu_license(root), "GPL-3.0")
+            self.assertEqual(detect_public_license(root), "GPL-3.0")
 
-    def test_ensure_gnu_license_rejects_non_gnu(self) -> None:
+    def test_detect_public_license_accepts_mit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "LICENSE").write_text(
+                "MIT License\n\nPermission is hereby granted, free of charge...",
+                encoding="utf-8",
+            )
+            self.assertEqual(detect_public_license(root), "MIT")
+
+    def test_detect_public_license_returns_unknown_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(detect_public_license(root), "UNKNOWN")
+
+    def test_ensure_gnu_license_wrapper_remains_backward_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "LICENSE").write_text("MIT License", encoding="utf-8")
-            with self.assertRaises(RuntimeError):
-                ensure_gnu_license(root)
+            self.assertEqual(ensure_gnu_license(root), "MIT")
 
     def test_debug_element_index_prints_target_and_exits_without_indexing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,7 +79,7 @@ class PublicIndexTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
@@ -99,7 +113,7 @@ class PublicIndexTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
@@ -189,7 +203,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
             patch("code_similarity_tool.public_index.load_runtime_context"),
             patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="head_sha"),
             patch("code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone),
-            patch("code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"),
+            patch("code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"),
             patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
@@ -296,7 +310,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
              patch("code_similarity_tool.public_index.load_runtime_context"), \
              patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="head_sha"), \
              patch("code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone), \
-             patch("code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"), \
+             patch("code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"), \
              patch(
                  "code_similarity_tool.public_index.iter_public_repo_source_files",
                  side_effect=lambda repo_dir: [repo_dir / "a.py"],

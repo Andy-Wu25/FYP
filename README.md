@@ -3,14 +3,14 @@
 Code Similarity Tool compares code elements against two datasets:
 
 - private organization code (stored in private collection)
-- central public GNU-licensed code (stored in public collection)
+- central public code (stored in public collection)
 
 ## Architecture
 
 1. Read-only checks
 - `code-sim-check` and `code-sim-check-private` query private org data only.
 - `code-sim-check-self` queries the current repository scope only (within private data).
-- `code-sim-check-public` queries public GNU index only.
+- `code-sim-check-public` queries public index only.
 - Query scope is configurable with `--scope`:
   - `staged` (default): code elements overlapping staged hunks.
   - `files`: whole provided file(s), staged or unstaged.
@@ -20,7 +20,7 @@ Code Similarity Tool compares code elements against two datasets:
 2. Write paths
 - `code-sim-update` syncs the current repository into private org scope.
 - `code-sim-index` syncs private scope by default.
-- `code-sim-index --url <github-url>` (or `code-sim-index-public <github-url>`) indexes a public GitHub repo into public scope, after GNU license validation.
+- `code-sim-index --url <github-url>` (or `code-sim-index-public <github-url>`) indexes a public GitHub repo into public scope, with detected license metadata.
 
 3. Shared DB and identity
 - All repos share one ChromaDB path (`CODE_SIM_DB_PATH`).
@@ -69,13 +69,16 @@ pip install -e .
 - `code-sim-check-self`
   - Compare code against only the current repository's private index entries (`--scope staged|files|repo`).
 - `code-sim-check-public`
-  - Compare code against public GNU index (`--scope staged|files|repo`).
+  - Compare code against public index (`--scope staged|files|repo`).
+  - Optional `--license` filter (repeatable or comma-separated) to scope results by SPDX id.
+  - If a license keyword appears misspelled and no matches are found, the CLI suggests close keywords.
   - Output includes commit-pinned GitHub permalink to the matched file/line and commit URL.
+  - Example: `code-sim-check-public --license MIT --scope files path/to/file.py --max-distance 0.5`
 - `code-sim-update`
   - Sync current repo to private org index.
 - `code-sim-index`
   - Without URL: same behavior as private sync.
-  - With URL (`code-sim-index --url ...` or positional URL): public GNU indexing path.
+  - With URL (`code-sim-index --url ...` or positional URL): public indexing path.
 - `code-sim-index-public <url>`
   - Explicit operator command for public indexing.
   - `--debug-element-index N` prints the Nth collected public element and exits (for embedding failure diagnosis).
@@ -157,7 +160,7 @@ git push
 
 ### Public central indexing workflow (service operator)
 
-1. index a GNU-licensed GitHub repo
+1. index a GitHub repo
 
 ```bash
 code-sim-index-public https://github.com/<owner>/<repo>
@@ -178,7 +181,7 @@ code-sim-index-public https://github.com/<owner>/<repo> --ref v1.2.3
 Validation performed before indexing:
 - URL must be a valid GitHub repository URL
 - git ref must resolve
-- license must be detected and in GNU allowlist (`GPL-*`, `LGPL-*`, `AGPL-*`)
+- license is auto-detected when possible and stored as metadata (`license`, `license_spdx`)
 
 ## Multi-Repo Private Scope Example
 

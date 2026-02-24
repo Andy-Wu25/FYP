@@ -25,7 +25,6 @@ GITHUB_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
 
-GNU_PREFIX_ALLOWLIST = ("GPL-", "LGPL-", "AGPL-")
 LICENSE_CANDIDATE_NAMES = (
     "LICENSE",
     "LICENSE.txt",
@@ -134,7 +133,7 @@ def detect_license_spdx(repo_root: Path) -> Optional[str]:
             continue
         return match.group(1).upper()
 
-    # Second pass: heuristic GNU family detection
+    # Second pass: heuristic license family detection
     for path in _iter_license_candidates(repo_root):
         text = _read_small_text(path).upper()
 
@@ -157,20 +156,46 @@ def detect_license_spdx(repo_root: Path) -> Optional[str]:
                 return "GPL-2.0"
             return "GPL-UNKNOWN"
 
+        if "APACHE LICENSE" in text and "VERSION 2.0" in text:
+            return "APACHE-2.0"
+
+        if "MIT LICENSE" in text or (
+            "PERMISSION IS HEREBY GRANTED, FREE OF CHARGE, TO ANY PERSON OBTAINING A COPY" in text
+        ):
+            return "MIT"
+
+        if "MOZILLA PUBLIC LICENSE" in text and "VERSION 2.0" in text:
+            return "MPL-2.0"
+
+        if "ECLIPSE PUBLIC LICENSE" in text:
+            if "2.0" in text:
+                return "EPL-2.0"
+            return "EPL-1.0"
+
+        if "THIS IS FREE AND UNENCUMBERED SOFTWARE RELEASED INTO THE PUBLIC DOMAIN" in text:
+            return "UNLICENSE"
+
+        if "PERMISSION TO USE, COPY, MODIFY, AND/OR DISTRIBUTE THIS SOFTWARE FOR ANY PURPOSE WITH OR WITHOUT FEE" in text:
+            return "ISC"
+
+        if "REDISTRIBUTION AND USE IN SOURCE AND BINARY FORMS" in text:
+            if "NEITHER THE NAME" in text:
+                return "BSD-3-CLAUSE"
+            return "BSD-2-CLAUSE"
+
     return None
 
 
-def ensure_gnu_license(repo_root: Path) -> str:
+def detect_public_license(repo_root: Path) -> str:
     spdx = detect_license_spdx(repo_root)
     if not spdx:
-        raise RuntimeError("No detectable license found in repository root.")
+        return "UNKNOWN"
+    return spdx.upper()
 
-    normalized = spdx.upper()
-    if not normalized.startswith(GNU_PREFIX_ALLOWLIST):
-        raise RuntimeError(
-            f"License '{spdx}' is not in GNU allowlist ({', '.join(GNU_PREFIX_ALLOWLIST)})."
-        )
-    return normalized
+
+def ensure_gnu_license(repo_root: Path) -> str:
+    """Backward-compatible wrapper kept for older call-sites/tests."""
+    return detect_public_license(repo_root)
 
 
 def _public_source_id(canonical_url: str, commit_sha: str) -> str:
@@ -250,7 +275,8 @@ def index_public_github_repo(
         repo_dir = Path(tmp) / "repo"
         clone_repo_at_commit(canonical_url, commit_sha, repo_dir)
 
-        license_id = ensure_gnu_license(repo_dir)
+        license_id = detect_public_license(repo_dir)
+        log.info("[public-index] detected_license=%s", license_id)
         files = iter_public_repo_source_files(repo_dir)
 
         for file_path in files:
@@ -331,6 +357,7 @@ def index_public_github_repo(
                 "source_file_url": build_github_blob_url(canonical_url, commit_sha, rel_path),
                 "source_file_commit": file_commit,
                 "license": license_id,
+                "license_spdx": license_id,
             },
         )
         total += len(by_file_elements[rel_path])
@@ -347,7 +374,7 @@ def index_public_github_repo(
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="code-sim-index-public",
-        description="Operator command: index GNU-licensed public GitHub repository into central DB.",
+        description="Operator command: index a public GitHub repository into central DB.",
     )
     parser.add_argument("url", help="GitHub repository URL (https://github.com/<owner>/<repo>)")
     parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/sha). Defaults to HEAD.")

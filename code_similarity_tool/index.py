@@ -102,7 +102,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="code-sim-index",
         description=(
-            "Index current repository into private org scope, or index a GNU-licensed "
+            "Index current repository into private org scope, or index a "
             "public GitHub repository when a URL is provided."
         ),
     )

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
-from typing import Dict
+import difflib
+import re
+from typing import Callable, Dict, List
 
 from .check_utils import (
     add_scope_argument,
@@ -16,10 +18,99 @@ from .embeddings import EmbeddingClient
 from .public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
 
 
-def _include_public_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
-    _ = query_rel
-    _ = query_hash
-    return True
+KNOWN_LICENSE_KEYWORDS = (
+    "0BSD",
+    "AFL-3.0",
+    "AGPL-3.0",
+    "APACHE-2.0",
+    "ARTISTIC-2.0",
+    "BSD-2-CLAUSE",
+    "BSD-3-CLAUSE",
+    "BSD-3-CLAUSE-CLEAR",
+    "BSD-4-CLAUSE",
+    "BSL-1.0",
+    "CC",
+    "CC-BY-4.0",
+    "CC-BY-SA-4.0",
+    "CC0-1.0",
+    "ECL-2.0",
+    "EPL-1.0",
+    "EPL-2.0",
+    "EUPL-1.1",
+    "GPL",
+    "GPL-2.0",
+    "GPL-3.0",
+    "ISC",
+    "LGPL",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "LPPL-1.3C",
+    "MIT",
+    "MPL-2.0",
+    "MS-PL",
+    "NCSA",
+    "OFL-1.1",
+    "OSL-3.0",
+    "POSTGRESQL",
+    "UNLICENSE",
+    "WTFPL",
+    "ZLIB",
+)
+_NORMALIZED_LICENSE_KEYWORDS = {
+    re.sub(r"[^A-Z0-9]+", "", keyword): keyword for keyword in KNOWN_LICENSE_KEYWORDS
+}
+
+
+def _normalize_license_filters(raw_values: List[str] | None) -> List[str]:
+    out: List[str] = []
+    for raw in raw_values or []:
+        for token in raw.split(","):
+            value = token.strip().upper()
+            if not value:
+                continue
+            if value not in out:
+                out.append(value)
+    return out
+
+
+def _suggest_license_keywords(keyword: str, *, max_suggestions: int = 3) -> List[str]:
+    value = keyword.strip().upper()
+    if not value:
+        return []
+
+    suggestions: List[str] = []
+    by_token = difflib.get_close_matches(value, KNOWN_LICENSE_KEYWORDS, n=max_suggestions, cutoff=0.55)
+    suggestions.extend(by_token)
+
+    normalized = re.sub(r"[^A-Z0-9]+", "", value)
+    if normalized:
+        normalized_candidates = difflib.get_close_matches(
+            normalized,
+            list(_NORMALIZED_LICENSE_KEYWORDS.keys()),
+            n=max_suggestions,
+            cutoff=0.65,
+        )
+        for candidate in normalized_candidates:
+            mapped = _NORMALIZED_LICENSE_KEYWORDS.get(candidate)
+            if mapped and mapped not in suggestions:
+                suggestions.append(mapped)
+
+    return suggestions[:max_suggestions]
+
+
+def _public_hit_filter_for_licenses(licenses: List[str]) -> Callable[[Dict, str, str], bool]:
+    allowed = set(licenses)
+
+    def _include_public_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
+        _ = query_rel
+        _ = query_hash
+        if not allowed:
+            return True
+        raw_license = meta.get("license", "") or meta.get("license_spdx", "")
+        license_value = str(raw_license).strip().upper()
+        return license_value in allowed
+
+    return _include_public_hit
 
 
 def main() -> None:
@@ -28,7 +119,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="code-sim-check-public",
         description=(
-            "Read-only similarity check against central public GNU index "
+            "Read-only similarity check against central public index "
             "(scope: staged/files/repo)."
         ),
     )
@@ -41,10 +132,22 @@ def main() -> None:
         default=None,
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
     )
+    parser.add_argument(
+        "--license",
+        dest="licenses",
+        action="append",
+        default=[],
+        help=(
+            "Optional SPDX license filter for public matches (repeatable or comma-separated). "
+            "If omitted, all licenses are queried."
+        ),
+    )
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
     top_k = max(1, args.top_k)
+    license_filters = _normalize_license_filters(args.licenses)
+    include_public_hit = _public_hit_filter_for_licenses(license_filters)
 
     ctx, rel_paths, query_elements = query_elements_from_args(args.paths, args.scope)
 
@@ -67,6 +170,8 @@ def main() -> None:
         len(rel_paths),
         args.scope,
     )
+    if license_filters:
+        log.info("Applying public license filter: %s", ", ".join(license_filters))
 
     embedder = EmbeddingClient()
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
@@ -81,14 +186,18 @@ def main() -> None:
     total_hits = 0
 
     for (rel_path, element), vector in zip(query_elements, vectors):
-        results = store.query_public_by_embedding(vector, n_results=pool_size)
+        results = store.query_public_by_embedding(
+            vector,
+            n_results=pool_size,
+            licenses=license_filters,
+        )
         hits = extract_hits(
             results,
             top_k=top_k,
             max_distance=args.max_distance,
             query_rel=rel_path,
             query_hash=element["hash"],
-            include_hit=_include_public_hit,
+            include_hit=include_public_hit,
         )
 
         print("-" * 72)
@@ -106,6 +215,9 @@ def main() -> None:
                 commit_url = meta.get("source_commit_url")
                 if not isinstance(commit_url, str) or not commit_url.strip():
                     commit_url = build_public_commit_permalink(meta)
+            license_display = meta.get("license")
+            if not isinstance(license_display, str) or not license_display.strip():
+                license_display = meta.get("license_spdx", "<unknown>")
 
             print(
                 "  "
@@ -113,7 +225,7 @@ def main() -> None:
                 f"repo={meta.get('repo_name', '<unknown>')} "
                 f"file={meta.get('file_path', '<unknown>')} "
                 f"function={meta.get('function_name', '<unknown>')} "
-                f"license={meta.get('license', '<unknown>')} "
+                f"license={license_display} "
                 f"commit={meta.get('source_commit', '<unknown>')}"
             )
             file_commit = meta.get("source_file_commit", "")
@@ -134,6 +246,15 @@ def main() -> None:
     print(
         f"Checked {len(query_elements)} code element(s); found {total_hits} public similar match(es)."
     )
+    if license_filters and total_hits == 0:
+        unknown_filters = [lic for lic in license_filters if lic not in KNOWN_LICENSE_KEYWORDS]
+        for bad_filter in unknown_filters:
+            suggestions = _suggest_license_keywords(bad_filter)
+            if suggestions:
+                print(
+                    f"License filter '{bad_filter}' not recognized. "
+                    f"Did you mean: {', '.join(suggestions)}?"
+                )
 
 
 if __name__ == "__main__":

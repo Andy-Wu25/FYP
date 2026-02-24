@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import chromadb
 from chromadb.config import Settings
@@ -158,8 +158,20 @@ class CodeVectorStore:
             n_results=n_results,
         )
 
-    def query_public_by_embedding(self, embedding: List[float], *, n_results: int = 8) -> Dict[str, Any]:
-        return self.public_collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results,
-        )
+    def query_public_by_embedding(
+        self,
+        embedding: List[float],
+        *,
+        n_results: int = 8,
+        licenses: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        query_kwargs: Dict[str, Any] = {
+            "query_embeddings": [embedding],
+            "n_results": n_results,
+        }
+
+        normalized = sorted({lic.strip().upper() for lic in (licenses or []) if lic and lic.strip()})
+        if normalized:
+            query_kwargs["where"] = {"license": {"$in": normalized}}
+
+        return self.public_collection.query(**query_kwargs)

@@ -189,7 +189,7 @@ class ReindexSafetyTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
@@ -225,7 +225,7 @@ class ReindexSafetyTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.foolang"],
@@ -259,7 +259,7 @@ class ReindexSafetyTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
@@ -305,7 +305,7 @@ class ReindexSafetyTest(unittest.TestCase):
             ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
                 "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.ensure_gnu_license", return_value="GPL-3.0"
+                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
                 "code_similarity_tool.public_index.iter_public_repo_source_files", return_value=[]
             ), patch(
