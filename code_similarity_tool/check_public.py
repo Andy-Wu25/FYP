@@ -13,7 +13,7 @@ from .check_utils import (
 )
 from .clients import CodeVectorStore
 from .embeddings import EmbeddingClient
-from .public_links import build_public_commit_permalink, build_public_match_permalink
+from .public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
 
 
 def _include_public_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
@@ -101,9 +101,11 @@ def main() -> None:
         total_hits += len(hits)
         for idx, (distance, meta) in enumerate(hits, start=1):
             permalink = build_public_match_permalink(meta)
-            commit_url = meta.get("source_commit_url")
-            if not isinstance(commit_url, str) or not commit_url.strip():
-                commit_url = build_public_commit_permalink(meta)
+            commit_url = None
+            if not permalink:
+                commit_url = meta.get("source_commit_url")
+                if not isinstance(commit_url, str) or not commit_url.strip():
+                    commit_url = build_public_commit_permalink(meta)
 
             print(
                 "  "
@@ -114,8 +116,17 @@ def main() -> None:
                 f"license={meta.get('license', '<unknown>')} "
                 f"commit={meta.get('source_commit', '<unknown>')}"
             )
+            file_commit = meta.get("source_file_commit", "")
+            file_commit_url = None
+            if isinstance(file_commit, str) and file_commit.strip():
+                file_commit_url = build_github_commit_url(
+                    str(meta.get("source_url", "")), file_commit.strip()
+                )
+
             if permalink:
                 print(f"     permalink={permalink}")
+            if file_commit_url:
+                print(f"     file_commit={file_commit_url}")
             if commit_url:
                 print(f"     commit_url={commit_url}")
 

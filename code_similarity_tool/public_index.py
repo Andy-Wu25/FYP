@@ -67,6 +67,20 @@ def _run_git(args: List[str], cwd: Optional[Path] = None, *, text: bool = True) 
     )
 
 
+def _get_file_last_commit(repo_dir: Path, rel_path: str, fallback: str) -> str:
+    """Return the SHA of the last commit that modified *rel_path* inside *repo_dir*.
+
+    Falls back to *fallback* (the repo HEAD SHA) if git produces no output or
+    raises (e.g. shallow clones without full history, or test environments).
+    """
+    try:
+        result = _run_git(["log", "-1", "--format=%H", "--", rel_path], cwd=repo_dir)
+        sha = result.stdout.strip()
+        return sha if sha else fallback
+    except Exception:  # noqa: BLE001
+        return fallback
+
+
 def resolve_remote_commit(url: str, ref: Optional[str]) -> str:
     if ref:
         out = _run_git(["ls-remote", url, ref], text=True).stdout.strip().splitlines()
@@ -88,7 +102,6 @@ def resolve_remote_commit(url: str, ref: Optional[str]) -> str:
 
 def clone_repo_at_commit(url: str, commit_sha: str, repo_dir: Path) -> None:
     _run_git(["clone", "--quiet", "--no-checkout", url, str(repo_dir)], text=True)
-    _run_git(["-C", str(repo_dir), "fetch", "--depth", "1", "origin", commit_sha], text=True)
     _run_git(["-C", str(repo_dir), "checkout", "--quiet", commit_sha], text=True)
 
 
@@ -232,6 +245,7 @@ def index_public_github_repo(
 
     all_elements: List[CodeElement] = []
     rel_paths_for_element: List[str] = []
+    file_commits: Dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="code-sim-public-") as tmp:
         repo_dir = Path(tmp) / "repo"
         clone_repo_at_commit(canonical_url, commit_sha, repo_dir)
@@ -248,6 +262,7 @@ def index_public_github_repo(
             if elements:
                 all_elements.extend(elements)
                 rel_paths_for_element.extend([rel_path] * len(elements))
+                file_commits[rel_path] = _get_file_last_commit(repo_dir, rel_path, commit_sha)
 
     if debug_element_index is not None:
         if debug_element_index < 1 or debug_element_index > len(all_elements):
@@ -298,6 +313,7 @@ def index_public_github_repo(
 
     total = 0
     for rel_path in by_file_elements:
+        file_commit = file_commits.get(rel_path, commit_sha)
         store.upsert_public_code_elements(
             by_file_elements[rel_path],
             by_file_vectors[rel_path],
@@ -313,6 +329,7 @@ def index_public_github_repo(
                 "source_commit": commit_sha,
                 "source_commit_url": build_github_commit_url(canonical_url, commit_sha),
                 "source_file_url": build_github_blob_url(canonical_url, commit_sha, rel_path),
+                "source_file_commit": file_commit,
                 "license": license_id,
             },
         )
