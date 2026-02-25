@@ -20,6 +20,13 @@ dependencies = [
 dev = [
   "pytest>=8.0.0",
 ]
+bot = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.29.0",
+  "httpx>=0.27.0",
+  "PyJWT>=2.8.0",
+  "cryptography>=42.0.0",
+]
 
 [project.scripts]
 code-sim-index         = "code_similarity_tool.index:main"
@@ -31,6 +38,7 @@ code-sim-check-self    = "code_similarity_tool.check_self:main"
 code-sim-check-public  = "code_similarity_tool.check_public:main"
 code-sim-ignore        = "code_similarity_tool.cli:init_ignore"
 code-sim-install-hook  = "code_similarity_tool.cli:install_git_hook"
+code-sim-bot-serve     = "code_similarity_tool.bot_serve:main"
 
 [tool.setuptools]
-packages = ["code_similarity_tool"]
+packages = ["code_similarity_tool", "code_similarity_tool.bot"]
