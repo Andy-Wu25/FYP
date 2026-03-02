@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import difflib
+import json
 import re
+from pathlib import Path
 from typing import Callable, Dict, List
 
 from .check_utils import (
@@ -142,6 +145,12 @@ def main() -> None:
             "If omitted, all licenses are queried."
         ),
     )
+    parser.add_argument(
+        "--json",
+        metavar="FILE",
+        default=None,
+        help="Write results as JSON to FILE.",
+    )
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
@@ -184,6 +193,7 @@ def main() -> None:
     )
     pool_size = max(top_k * 4, 20)
     total_hits = 0
+    query_results = []
 
     for (rel_path, element), vector in zip(query_elements, vectors):
         results = store.query_public_by_embedding(
@@ -200,11 +210,20 @@ def main() -> None:
             include_hit=include_public_hit,
         )
 
+        query_record = {
+            "name": element["name"],
+            "file": rel_path,
+            "start_line": element["start_line"],
+            "end_line": element["end_line"],
+            "hits": [],
+        }
+
         print("-" * 72)
         print(f"Query: {element['name']} ({rel_path}:{element['start_line']}-{element['end_line']})")
 
         if not hits:
             print("  No public-index similar items found.")
+            query_results.append(query_record)
             continue
 
         total_hits += len(hits)
@@ -242,6 +261,27 @@ def main() -> None:
             if commit_url:
                 print(f"     commit_url={commit_url}")
 
+            hit: Dict = {
+                "rank": idx,
+                "distance": round(distance, 6),
+                "repo": meta.get("repo_name", "<unknown>"),
+                "file": meta.get("file_path", "<unknown>"),
+                "function": meta.get("function_name", "<unknown>"),
+                "start_line": meta.get("start_line"),
+                "end_line": meta.get("end_line"),
+                "license": license_display,
+                "commit": meta.get("source_commit", "<unknown>"),
+            }
+            if permalink:
+                hit["permalink"] = permalink
+            if file_commit_url:
+                hit["file_commit_url"] = file_commit_url
+            if commit_url:
+                hit["commit_url"] = commit_url
+            query_record["hits"].append(hit)
+
+        query_results.append(query_record)
+
     print("=" * 72)
     print(
         f"Checked {len(query_elements)} code element(s); found {total_hits} public similar match(es)."
@@ -255,6 +295,23 @@ def main() -> None:
                     f"License filter '{bad_filter}' not recognized. "
                     f"Did you mean: {', '.join(suggestions)}?"
                 )
+
+    if args.json:
+        data = {
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "command": "code-sim-check-public",
+            "scope": args.scope,
+            "top_k": top_k,
+            "max_distance": args.max_distance,
+            "license_filters": license_filters,
+            "queries": query_results,
+            "summary": {
+                "total_elements_checked": len(query_elements),
+                "total_hits": total_hits,
+            },
+        }
+        Path(args.json).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        print(f"\nJSON written \u2192 {args.json}")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
+from pathlib import Path
 from typing import Dict
 
 from .check_utils import (
@@ -40,6 +43,12 @@ def main() -> None:
         type=float,
         default=None,
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
+    )
+    parser.add_argument(
+        "--json",
+        metavar="FILE",
+        default=None,
+        help="Write results as JSON to FILE.",
     )
     args = parser.parse_args()
     validate_scope_args(parser, args)
@@ -80,6 +89,7 @@ def main() -> None:
     )
     pool_size = max(top_k * 4, 20)
     total_hits = 0
+    query_results = []
 
     for (rel_path, element), vector in zip(query_elements, vectors):
         results = store.query_private_repo_by_embedding(
@@ -97,11 +107,20 @@ def main() -> None:
             include_hit=_include_self_hit,
         )
 
+        query_record = {
+            "name": element["name"],
+            "file": rel_path,
+            "start_line": element["start_line"],
+            "end_line": element["end_line"],
+            "hits": [],
+        }
+
         print("-" * 72)
         print(f"Query: {element['name']} ({rel_path}:{element['start_line']}-{element['end_line']})")
 
         if not hits:
             print("  No self-repo similar items found.")
+            query_results.append(query_record)
             continue
 
         total_hits += len(hits)
@@ -114,11 +133,39 @@ def main() -> None:
                 f"function={meta.get('function_name', '<unknown>')} "
                 f"lines={meta.get('start_line', '?')}-{meta.get('end_line', '?')}"
             )
+            query_record["hits"].append({
+                "rank": idx,
+                "distance": round(distance, 6),
+                "repo": meta.get("repo_name", "<unknown>"),
+                "file": meta.get("file_path", "<unknown>"),
+                "function": meta.get("function_name", "<unknown>"),
+                "start_line": meta.get("start_line"),
+                "end_line": meta.get("end_line"),
+            })
+
+        query_results.append(query_record)
 
     print("=" * 72)
     print(
         f"Checked {len(query_elements)} code element(s); found {total_hits} self-repo similar match(es) in repo '{ctx.repo_name}'."
     )
+
+    if args.json:
+        data = {
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "command": "code-sim-check-self",
+            "scope": args.scope,
+            "top_k": top_k,
+            "max_distance": args.max_distance,
+            "repo": ctx.repo_name,
+            "queries": query_results,
+            "summary": {
+                "total_elements_checked": len(query_elements),
+                "total_hits": total_hits,
+            },
+        }
+        Path(args.json).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        print(f"\nJSON written \u2192 {args.json}")
 
 
 if __name__ == "__main__":
