@@ -101,8 +101,12 @@ EXCLUDED_EXTENSIONS = {
     ".woff2",
     ".xls",
     ".xlsx",
+    ".xml",
     ".xml.gz",
     ".xz",
+    ".yaml",
+    ".yml",
+    ".json",
     ".zip",
 }
 

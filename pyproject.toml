@@ -30,6 +30,7 @@ bot = [
 
 [project.scripts]
 code-sim-index         = "code_similarity_tool.index:main"
+code-sim-index-private = "code_similarity_tool.index:main_private_url"
 code-sim-index-public  = "code_similarity_tool.public_index:main"
 code-sim-update        = "code_similarity_tool.update:main"
 code-sim-check         = "code_similarity_tool.code_similarity:main"
@@ -39,6 +40,7 @@ code-sim-check-public  = "code_similarity_tool.check_public:main"
 code-sim-ignore        = "code_similarity_tool.cli:init_ignore"
 code-sim-install-hook  = "code_similarity_tool.cli:install_git_hook"
 code-sim-bot-serve     = "code_similarity_tool.bot_serve:main"
+code-sim-stats         = "code_similarity_tool.stats:main"
 
 [tool.setuptools]
 packages = ["code_similarity_tool", "code_similarity_tool.bot"]
