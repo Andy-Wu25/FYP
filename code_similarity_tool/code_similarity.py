@@ -5,12 +5,19 @@ import argparse
 import datetime
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 from .check_utils import (
     add_scope_argument,
     configure_logging,
+    disable_color,
     extract_hits,
+    fmt_check_sub_header,
+    fmt_footer,
+    fmt_header_box,
+    fmt_private_hit,
+    fmt_public_hit,
+    fmt_query_header,
     query_elements_from_args,
     validate_scope_args,
 )
@@ -21,7 +28,6 @@ from .public_links import build_github_commit_url, build_public_commit_permalink
 
 def _include_private_hit_factory(query_repo_id: str):
     def _include_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
-        # Skip exact self match from same repo/file/content
         if (
             meta.get("repo_id") == query_repo_id
             and meta.get("file_path") == query_rel
@@ -29,7 +35,6 @@ def _include_private_hit_factory(query_repo_id: str):
         ):
             return False
         return True
-
     return _include_hit
 
 
@@ -37,12 +42,24 @@ def _include_all(meta: Dict, query_rel: str, query_hash: str) -> bool:
     return True
 
 
-def _run_check(
-    prog: str,
-    description: str,
-    check_private: bool,
-    check_public: bool,
-) -> None:
+def _resolve_public_hit_urls(meta: Dict):
+    permalink = build_public_match_permalink(meta)
+    commit_url = None
+    if not permalink:
+        commit_url = meta.get("source_commit_url")
+        if not isinstance(commit_url, str) or not commit_url.strip():
+            commit_url = build_public_commit_permalink(meta)
+    file_commit = meta.get("source_file_commit", "")
+    file_commit_url = None
+    if isinstance(file_commit, str) and file_commit.strip():
+        file_commit_url = build_github_commit_url(str(meta.get("source_url", "")), file_commit.strip())
+    license_display = meta.get("license")
+    if not isinstance(license_display, str) or not license_display.strip():
+        license_display = meta.get("license_spdx", "<unknown>")
+    return permalink, file_commit_url, commit_url, license_display
+
+
+def _run_check(prog: str, description: str, check_private: bool, check_public: bool) -> None:
     log = configure_logging()
 
     parser = argparse.ArgumentParser(prog=prog, description=description)
@@ -55,38 +72,27 @@ def _run_check(
         default=None,
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
     )
-    parser.add_argument(
-        "--json",
-        metavar="FILE",
-        default=None,
-        help="Write results as JSON to FILE.",
-    )
+    parser.add_argument("--json", metavar="FILE", default=None, help="Write results as JSON to FILE.")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour output.")
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
-    top_k = max(1, args.top_k)
+    if args.no_color:
+        disable_color()
 
+    top_k = max(1, args.top_k)
     ctx, rel_paths, query_elements = query_elements_from_args(args.paths, args.scope)
 
     if not rel_paths:
-        if args.scope == "repo":
-            log.info("No repository files matched the active scope and filters.")
-        elif args.scope == "files":
-            log.info("No provided files matched the active scope and filters.")
-        else:
-            log.info("No staged files matched the active scope and filters.")
+        log.info("No %s files matched the active scope and filters.",
+                 "repository" if args.scope == "repo" else "provided" if args.scope == "files" else "staged")
         return
-
     if not query_elements:
         log.info("No queryable code elements found after filters and ignore rules.")
         return
 
-    log.info(
-        "Checking %d code element(s) from %d file(s) in scope '%s'.",
-        len(query_elements),
-        len(rel_paths),
-        args.scope,
-    )
+    log.info("Checking %d code element(s) from %d file(s) in scope '%s'.",
+             len(query_elements), len(rel_paths), args.scope)
 
     embedder = EmbeddingClient()
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
@@ -98,15 +104,16 @@ def _run_check(
         metric=ctx.metric,
     )
     pool_size = max(top_k * 4, 20)
-
     include_private = _include_private_hit_factory(ctx.repo_id)
+
     total_private_hits = 0
     total_public_hits = 0
     query_results = []
 
+    print(fmt_header_box(prog, args.scope, ctx.org_id, len(query_elements)))
+
     for (rel_path, element), vector in zip(query_elements, vectors):
-        print("-" * 72)
-        print(f"Query: {element['name']} ({rel_path}:{element['start_line']}-{element['end_line']})")
+        print(fmt_query_header(element["name"], rel_path, element["start_line"], element["end_line"]))
 
         query_record: Dict = {
             "name": element["name"],
@@ -128,30 +135,26 @@ def _run_check(
                 query_hash=element["hash"],
                 include_hit=include_private,
             )
-            print("  [Private]")
+            print(fmt_check_sub_header("Private", len(private_hits)))
             if not private_hits:
-                print("    No private-org similar items found.")
+                from .check_utils import _DIM, _RESET
+                print(f"  {_DIM}No matches in private org index.{_RESET}")
             else:
                 total_private_hits += len(private_hits)
                 for idx, (distance, meta) in enumerate(private_hits, start=1):
-                    print(
-                        f"    {idx}. distance={distance:.4f} "
-                        f"repo={meta.get('repo_name', '<unknown>')} "
-                        f"file={meta.get('file_path', '<unknown>')} "
-                        f"function={meta.get('function_name', '<unknown>')} "
-                        f"lines={meta.get('start_line', '?')}-{meta.get('end_line', '?')}"
-                    )
+                    print(fmt_private_hit(idx, distance, meta))
+
             query_record["private_hits"] = [
                 {
-                    "rank": idx,
-                    "distance": round(distance, 6),
-                    "repo": meta.get("repo_name", "<unknown>"),
-                    "file": meta.get("file_path", "<unknown>"),
-                    "function": meta.get("function_name", "<unknown>"),
-                    "start_line": meta.get("start_line"),
-                    "end_line": meta.get("end_line"),
+                    "rank": i,
+                    "distance": round(d, 6),
+                    "repo": m.get("repo_name", "<unknown>"),
+                    "file": m.get("file_path", "<unknown>"),
+                    "function": m.get("function_name", "<unknown>"),
+                    "start_line": m.get("start_line"),
+                    "end_line": m.get("end_line"),
                 }
-                for idx, (distance, meta) in enumerate(private_hits if check_private else [], start=1)
+                for i, (d, m) in enumerate(private_hits, start=1)
             ]
 
         # ── Public ───────────────────────────────────────────────────────────
@@ -165,68 +168,30 @@ def _run_check(
                 query_hash=element["hash"],
                 include_hit=_include_all,
             )
-            print("  [Public]")
+            print(fmt_check_sub_header("Public", len(public_hits)))
             if not public_hits:
-                print("    No public-index similar items found.")
+                from .check_utils import _DIM, _RESET
+                print(f"  {_DIM}No matches in public index.{_RESET}")
             else:
                 total_public_hits += len(public_hits)
                 for idx, (distance, meta) in enumerate(public_hits, start=1):
-                    permalink = build_public_match_permalink(meta)
-                    commit_url = None
-                    if not permalink:
-                        commit_url = meta.get("source_commit_url")
-                        if not isinstance(commit_url, str) or not commit_url.strip():
-                            commit_url = build_public_commit_permalink(meta)
-                    license_display = meta.get("license")
-                    if not isinstance(license_display, str) or not license_display.strip():
-                        license_display = meta.get("license_spdx", "<unknown>")
-                    print(
-                        f"    {idx}. distance={distance:.4f} "
-                        f"repo={meta.get('repo_name', '<unknown>')} "
-                        f"file={meta.get('file_path', '<unknown>')} "
-                        f"function={meta.get('function_name', '<unknown>')} "
-                        f"license={license_display}"
-                    )
-                    file_commit = meta.get("source_file_commit", "")
-                    file_commit_url = None
-                    if isinstance(file_commit, str) and file_commit.strip():
-                        file_commit_url = build_github_commit_url(
-                            str(meta.get("source_url", "")), file_commit.strip()
-                        )
-                    if permalink:
-                        print(f"       permalink={permalink}")
-                    if file_commit_url:
-                        print(f"       file_commit={file_commit_url}")
-                    if commit_url:
-                        print(f"       commit_url={commit_url}")
+                    permalink, file_commit_url, commit_url, license_display = _resolve_public_hit_urls(meta)
+                    for row in fmt_public_hit(idx, distance, meta, permalink, file_commit_url, commit_url, license_display):
+                        print(row)
 
-            public_hit_records = []
-            for idx, (distance, meta) in enumerate(public_hits if check_public else [], start=1):
-                permalink = build_public_match_permalink(meta)
-                commit_url = None
-                if not permalink:
-                    commit_url = meta.get("source_commit_url")
-                    if not isinstance(commit_url, str) or not commit_url.strip():
-                        commit_url = build_public_commit_permalink(meta)
-                license_display = meta.get("license")
-                if not isinstance(license_display, str) or not license_display.strip():
-                    license_display = meta.get("license_spdx", "<unknown>")
-                file_commit = meta.get("source_file_commit", "")
-                file_commit_url = None
-                if isinstance(file_commit, str) and file_commit.strip():
-                    file_commit_url = build_github_commit_url(
-                        str(meta.get("source_url", "")), file_commit.strip()
-                    )
+            public_hit_records: List[Dict] = []
+            for i, (d, m) in enumerate(public_hits if check_public else [], start=1):
+                permalink, file_commit_url, commit_url, license_display = _resolve_public_hit_urls(m)
                 hit: Dict = {
-                    "rank": idx,
-                    "distance": round(distance, 6),
-                    "repo": meta.get("repo_name", "<unknown>"),
-                    "file": meta.get("file_path", "<unknown>"),
-                    "function": meta.get("function_name", "<unknown>"),
-                    "start_line": meta.get("start_line"),
-                    "end_line": meta.get("end_line"),
+                    "rank": i,
+                    "distance": round(d, 6),
+                    "repo": m.get("repo_name", "<unknown>"),
+                    "file": m.get("file_path", "<unknown>"),
+                    "function": m.get("function_name", "<unknown>"),
+                    "start_line": m.get("start_line"),
+                    "end_line": m.get("end_line"),
                     "license": license_display,
-                    "commit": meta.get("source_commit", "<unknown>"),
+                    "commit": m.get("source_commit", "<unknown>"),
                 }
                 if permalink:
                     hit["permalink"] = permalink
@@ -239,22 +204,13 @@ def _run_check(
 
         query_results.append(query_record)
 
-    print("=" * 72)
-    if check_private and check_public:
-        print(
-            f"Checked {len(query_elements)} code element(s); "
-            f"found {total_private_hits} private match(es), {total_public_hits} public match(es)."
-        )
-    elif check_private:
-        print(
-            f"Checked {len(query_elements)} code element(s); "
-            f"found {total_private_hits} private similar match(es) in org '{ctx.org_id}'."
-        )
-    else:
-        print(
-            f"Checked {len(query_elements)} code element(s); "
-            f"found {total_public_hits} public similar match(es)."
-        )
+    # ── Footer ───────────────────────────────────────────────────────────────
+    footer_parts = [f"Checked  {len(query_elements)} element{'s' if len(query_elements) != 1 else ''}"]
+    if check_private:
+        footer_parts.append(f"Private  {total_private_hits} match{'es' if total_private_hits != 1 else ''}")
+    if check_public:
+        footer_parts.append(f"Public  {total_public_hits} match{'es' if total_public_hits != 1 else ''}")
+    print(fmt_footer(footer_parts))
 
     if args.json:
         data: Dict = {
@@ -265,9 +221,7 @@ def _run_check(
             "max_distance": args.max_distance,
             "org_id": ctx.org_id,
             "queries": query_results,
-            "summary": {
-                "total_elements_checked": len(query_elements),
-            },
+            "summary": {"total_elements_checked": len(query_elements)},
         }
         if check_private:
             data["summary"]["total_private_hits"] = total_private_hits
@@ -280,10 +234,7 @@ def _run_check(
 def main() -> None:
     _run_check(
         prog="code-sim-check",
-        description=(
-            "Read-only similarity check against both private org-scoped and public indexes "
-            "(scope: staged/files/repo)."
-        ),
+        description="Similarity check against both private org-scoped and public indexes (scope: staged/files/repo).",
         check_private=True,
         check_public=True,
     )
@@ -292,10 +243,7 @@ def main() -> None:
 def main_private() -> None:
     _run_check(
         prog="code-sim-check-private",
-        description=(
-            "Read-only similarity check against private org-scoped index only "
-            "(scope: staged/files/repo)."
-        ),
+        description="Similarity check against private org-scoped index only (scope: staged/files/repo).",
         check_private=True,
         check_public=False,
     )

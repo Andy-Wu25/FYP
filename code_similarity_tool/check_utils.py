@@ -3,8 +3,123 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+
+# ── ANSI codes ─────────────────────────────────────────────────────────────────
+_BOLD   = "\033[1m"
+_RESET  = "\033[0m"
+_CYAN   = "\033[96m"
+_GREEN  = "\033[92m"
+_YELLOW = "\033[93m"
+_RED    = "\033[91m"
+_DIM    = "\033[2m"
+
+_W = 76  # dashboard line width
+
+
+def disable_color() -> None:
+    global _BOLD, _RESET, _CYAN, _GREEN, _YELLOW, _RED, _DIM
+    _BOLD = _RESET = _CYAN = _GREEN = _YELLOW = _RED = _DIM = ""
+
+
+def _vis_len(s: str) -> int:
+    """String length ignoring ANSI CSI and OSC escape sequences."""
+    s = re.sub(r"\033\[[^a-zA-Z]*[a-zA-Z]", "", s)
+    s = re.sub(r"\033\][^\033\007]*(?:\033\\|\007)", "", s)
+    return len(s)
+
+
+def _dist_badge(d: float) -> str:
+    if d < 0.15:
+        return f"{_RED}{_BOLD}{d:.4f}{_RESET}"
+    if d < 0.35:
+        return f"{_YELLOW}{_BOLD}{d:.4f}{_RESET}"
+    return f"{_BOLD}{d:.4f}{_RESET}"
+
+
+def fmt_header_box(prog: str, scope: str, org_id: str, n_elements: int) -> str:
+    inner_w = _W - 2
+    title = "CODE SIMILARITY CHECK"
+    pad_l = (inner_w - len(title)) // 2
+    pad_r = inner_w - len(title) - pad_l
+    return "\n".join([
+        "╔" + "═" * inner_w + "╗",
+        "║" + " " * pad_l + _BOLD + title + _RESET + " " * pad_r + "║",
+        "╠" + "═" * inner_w + "╣",
+        "║  " + f"Command    {prog:<28} Scope      {scope}".ljust(inner_w - 2) + "  ║",
+        "║  " + f"Org        {org_id:<28} Elements   {n_elements}".ljust(inner_w - 2) + "  ║",
+        "╚" + "═" * inner_w + "╝",
+    ])
+
+
+def fmt_query_header(name: str, file: str, start: int, end: int) -> str:
+    inner = f"  {_BOLD}{_CYAN}{name}{_RESET}  ·"
+    badge = f"  {_DIM}{file}  {start}–{end}{_RESET}  "
+    sep_len = _W - _vis_len(inner) - _vis_len(badge)
+    return "\n" + "━" * 4 + inner + "━" * max(0, sep_len) + badge
+
+
+def fmt_check_sub_header(label: str, count: Optional[int] = None) -> str:
+    if count is None:
+        count_str = ""
+    elif count == 0:
+        count_str = f"  {_DIM}no matches{_RESET}"
+    else:
+        count_str = f"  {_DIM}{count} match{'es' if count != 1 else ''}{_RESET}"
+    line = f"  ── {_CYAN}{label}{_RESET}{count_str} "
+    pad = _W - _vis_len(line) - 1
+    return line + "─" * max(0, pad)
+
+
+def fmt_private_hit(idx: int, distance: float, meta: Dict) -> str:
+    repo = meta.get("repo_name", "<unknown>")
+    file = meta.get("file_path", "<unknown>")
+    func = meta.get("function_name", "<unknown>")
+    sl   = meta.get("start_line", "?")
+    el   = meta.get("end_line", "?")
+    return (
+        f"  #{idx}  {_dist_badge(distance)}   "
+        f"{_BOLD}{repo}{_RESET}  ›  {file}:{sl}–{el}  ›  {func}"
+    )
+
+
+def fmt_public_hit(
+    idx: int,
+    distance: float,
+    meta: Dict,
+    permalink: Optional[str],
+    file_commit_url: Optional[str],
+    commit_url: Optional[str],
+    license_display: str,
+) -> List[str]:
+    repo = meta.get("repo_name", "<unknown>")
+    file = meta.get("file_path", "<unknown>")
+    func = meta.get("function_name", "<unknown>")
+    sl   = meta.get("start_line", "?")
+    el   = meta.get("end_line", "?")
+    if license_display and license_display != "<unknown>":
+        lic_str = f"  {_GREEN}[{license_display}]{_RESET}"
+    else:
+        lic_str = f"  {_DIM}[?]{_RESET}"
+    rows = [
+        f"  #{idx}  {_dist_badge(distance)}{lic_str}   "
+        f"{_BOLD}{repo}{_RESET}  ›  {file}:{sl}–{el}  ›  {func}"
+    ]
+    pad = "             "
+    if permalink:
+        rows.append(f"{pad}{_DIM}↳{_RESET}  {permalink}")
+    if file_commit_url:
+        rows.append(f"{pad}{_DIM}↳  file commit:{_RESET}  {file_commit_url}")
+    if commit_url:
+        rows.append(f"{pad}{_DIM}↳  commit:{_RESET}  {commit_url}")
+    return rows
+
+
+def fmt_footer(parts: List[str]) -> str:
+    summary = "  " + f"  ·  ".join(parts)
+    return "\n" + "━" * _W + "\n" + summary + "\n" + "━" * _W
 
 from .code_parser import CodeElement, extract_code_elements
 from .ignore import load_ignore_file

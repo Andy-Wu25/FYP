@@ -8,9 +8,17 @@ from pathlib import Path
 from typing import Dict
 
 from .check_utils import (
+    _DIM,
+    _RESET,
     add_scope_argument,
     configure_logging,
+    disable_color,
     extract_hits,
+    fmt_check_sub_header,
+    fmt_footer,
+    fmt_header_box,
+    fmt_private_hit,
+    fmt_query_header,
     query_elements_from_args,
     validate_scope_args,
 )
@@ -19,7 +27,6 @@ from .embeddings import EmbeddingClient
 
 
 def _include_self_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
-    # Skip exact self match from same file/content
     if meta.get("file_path") == query_rel and meta.get("content_hash") == query_hash:
         return False
     return True
@@ -30,10 +37,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="code-sim-check-self",
-        description=(
-            "Read-only similarity check against the current repository only "
-            "(scope: staged/files/repo)."
-        ),
+        description="Similarity check against the current repository only (scope: staged/files/repo).",
     )
     parser.add_argument("paths", nargs="*", help="Optional paths (used by --scope staged/files).")
     add_scope_argument(parser)
@@ -44,39 +48,27 @@ def main() -> None:
         default=None,
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
     )
-    parser.add_argument(
-        "--json",
-        metavar="FILE",
-        default=None,
-        help="Write results as JSON to FILE.",
-    )
+    parser.add_argument("--json", metavar="FILE", default=None, help="Write results as JSON to FILE.")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour output.")
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
-    top_k = max(1, args.top_k)
+    if args.no_color:
+        disable_color()
 
+    top_k = max(1, args.top_k)
     ctx, rel_paths, query_elements = query_elements_from_args(args.paths, args.scope)
 
     if not rel_paths:
-        if args.scope == "repo":
-            log.info("No repository files matched the active scope and filters.")
-        elif args.scope == "files":
-            log.info("No provided files matched the active scope and filters.")
-        else:
-            log.info("No staged files matched the active scope and filters.")
+        log.info("No %s files matched the active scope and filters.",
+                 "repository" if args.scope == "repo" else "provided" if args.scope == "files" else "staged")
         return
-
     if not query_elements:
         log.info("No queryable code elements found after filters and ignore rules.")
         return
 
-    log.info(
-        "Checking %d code element(s) from %d file(s) in scope '%s' for self repo '%s'.",
-        len(query_elements),
-        len(rel_paths),
-        args.scope,
-        ctx.repo_name,
-    )
+    log.info("Checking %d code element(s) from %d file(s) in scope '%s' for self repo '%s'.",
+             len(query_elements), len(rel_paths), args.scope, ctx.repo_name)
 
     embedder = EmbeddingClient()
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
@@ -91,12 +83,13 @@ def main() -> None:
     total_hits = 0
     query_results = []
 
+    print(fmt_header_box("code-sim-check-self", args.scope, ctx.org_id, len(query_elements)))
+
     for (rel_path, element), vector in zip(query_elements, vectors):
+        print(fmt_query_header(element["name"], rel_path, element["start_line"], element["end_line"]))
+
         results = store.query_private_repo_by_embedding(
-            vector,
-            org_id=ctx.org_id,
-            repo_id=ctx.repo_id,
-            n_results=pool_size,
+            vector, org_id=ctx.org_id, repo_id=ctx.repo_id, n_results=pool_size,
         )
         hits = extract_hits(
             results,
@@ -107,48 +100,41 @@ def main() -> None:
             include_hit=_include_self_hit,
         )
 
+        print(fmt_check_sub_header("Self", len(hits)))
+        if not hits:
+            print(f"  {_DIM}No matches in this repository.{_RESET}")
+        else:
+            total_hits += len(hits)
+            for idx, (distance, meta) in enumerate(hits, start=1):
+                print(fmt_private_hit(idx, distance, meta))
+
         query_record = {
             "name": element["name"],
             "file": rel_path,
             "start_line": element["start_line"],
             "end_line": element["end_line"],
-            "hits": [],
+            "hits": [
+                {
+                    "rank": i,
+                    "distance": round(d, 6),
+                    "repo": m.get("repo_name", "<unknown>"),
+                    "file": m.get("file_path", "<unknown>"),
+                    "function": m.get("function_name", "<unknown>"),
+                    "start_line": m.get("start_line"),
+                    "end_line": m.get("end_line"),
+                }
+                for i, (d, m) in enumerate(hits, start=1)
+            ],
         }
-
-        print("-" * 72)
-        print(f"Query: {element['name']} ({rel_path}:{element['start_line']}-{element['end_line']})")
-
-        if not hits:
-            print("  No self-repo similar items found.")
-            query_results.append(query_record)
-            continue
-
-        total_hits += len(hits)
-        for idx, (distance, meta) in enumerate(hits, start=1):
-            print(
-                "  "
-                f"{idx}. distance={distance:.4f} "
-                f"repo={meta.get('repo_name', '<unknown>')} "
-                f"file={meta.get('file_path', '<unknown>')} "
-                f"function={meta.get('function_name', '<unknown>')} "
-                f"lines={meta.get('start_line', '?')}-{meta.get('end_line', '?')}"
-            )
-            query_record["hits"].append({
-                "rank": idx,
-                "distance": round(distance, 6),
-                "repo": meta.get("repo_name", "<unknown>"),
-                "file": meta.get("file_path", "<unknown>"),
-                "function": meta.get("function_name", "<unknown>"),
-                "start_line": meta.get("start_line"),
-                "end_line": meta.get("end_line"),
-            })
-
         query_results.append(query_record)
 
-    print("=" * 72)
-    print(
-        f"Checked {len(query_elements)} code element(s); found {total_hits} self-repo similar match(es) in repo '{ctx.repo_name}'."
-    )
+    print(fmt_footer([
+        f"Checked  {len(query_elements)} element{'s' if len(query_elements) != 1 else ''}",
+        f"Self  {total_hits} match{'es' if total_hits != 1 else ''}  ·  repo: {ctx.repo_name}",
+    ]))
+
+    if total_hits == 0:
+        print(f"\n{_DIM}Hint: no indexed data found. Run code-sim-index first.\033[0m")
 
     if args.json:
         data = {
