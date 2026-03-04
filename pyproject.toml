@@ -35,6 +35,7 @@ charts = [
 code-sim-index         = "code_similarity_tool.index:main"
 code-sim-index-private = "code_similarity_tool.index:main_private_url"
 code-sim-index-public  = "code_similarity_tool.public_index:main"
+code-sim-remove-public = "code_similarity_tool.public_remove:main"
 code-sim-update        = "code_similarity_tool.update:main"
 code-sim-check         = "code_similarity_tool.code_similarity:main"
 code-sim-check-private = "code_similarity_tool.code_similarity:main_private"

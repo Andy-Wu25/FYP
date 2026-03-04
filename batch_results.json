@@ -1,0 +1,702 @@
+[
+  {
+    "i": 1,
+    "repo": "developit/mitt",
+    "elements": 6,
+    "time_s": 2.7,
+    "error": null
+  },
+  {
+    "i": 2,
+    "repo": "pallets/itsdangerous",
+    "elements": 117,
+    "time_s": 5.8,
+    "error": null
+  },
+  {
+    "i": 3,
+    "repo": "gorilla/mux",
+    "elements": 231,
+    "time_s": 27.3,
+    "error": null
+  },
+  {
+    "i": 4,
+    "repo": "SwiftyJSON/SwiftyJSON",
+    "elements": 408,
+    "time_s": 44.8,
+    "error": null
+  },
+  {
+    "i": 5,
+    "repo": "filp/whoops",
+    "elements": 431,
+    "time_s": 31.1,
+    "error": null
+  },
+  {
+    "i": 6,
+    "repo": "rails/jbuilder",
+    "elements": 34,
+    "time_s": 15.4,
+    "error": null
+  },
+  {
+    "i": 7,
+    "repo": "chalk/chalk",
+    "elements": 23,
+    "time_s": 54.6,
+    "error": null
+  },
+  {
+    "i": 8,
+    "repo": "serde-rs/json",
+    "elements": 1261,
+    "time_s": 178.2,
+    "error": null
+  },
+  {
+    "i": 9,
+    "repo": "symfony/yaml",
+    "elements": 429,
+    "time_s": 32.4,
+    "error": null
+  },
+  {
+    "i": 10,
+    "repo": "vercel/ms",
+    "elements": 16,
+    "time_s": 11.6,
+    "error": null
+  },
+  {
+    "i": 11,
+    "repo": "node-fetch/node-fetch",
+    "elements": 88,
+    "time_s": 20.5,
+    "error": null
+  },
+  {
+    "i": 12,
+    "repo": "pallets/markupsafe",
+    "elements": 113,
+    "time_s": 4.8,
+    "error": null
+  },
+  {
+    "i": 13,
+    "repo": "dbader/schedule",
+    "elements": 161,
+    "time_s": 10.7,
+    "error": null
+  },
+  {
+    "i": 14,
+    "repo": "debug-js/debug",
+    "elements": 27,
+    "time_s": 3.8,
+    "error": null
+  },
+  {
+    "i": 15,
+    "repo": "google/uuid",
+    "elements": 150,
+    "time_s": 8.1,
+    "error": null
+  },
+  {
+    "i": 16,
+    "repo": "joho/godotenv",
+    "elements": 54,
+    "time_s": 4.2,
+    "error": null
+  },
+  {
+    "i": 17,
+    "repo": "dtolnay/anyhow",
+    "elements": 257,
+    "time_s": 14.2,
+    "error": null
+  },
+  {
+    "i": 18,
+    "repo": "rust-lang/log",
+    "elements": 393,
+    "time_s": 20.6,
+    "error": null
+  },
+  {
+    "i": 19,
+    "repo": "jwt/ruby-jwt",
+    "elements": 91,
+    "time_s": 39.3,
+    "error": null
+  },
+  {
+    "i": 20,
+    "repo": "ramsey/uuid",
+    "elements": 1042,
+    "time_s": 74.3,
+    "error": null
+  },
+  {
+    "i": 21,
+    "repo": "go-chi/chi",
+    "elements": 358,
+    "time_s": 30.4,
+    "error": null
+  },
+  {
+    "i": 22,
+    "repo": "vlucas/phpdotenv",
+    "elements": 347,
+    "time_s": 15.3,
+    "error": null
+  },
+  {
+    "i": 23,
+    "repo": "nikic/FastRoute",
+    "elements": 205,
+    "time_s": 12.3,
+    "error": null
+  },
+  {
+    "i": 24,
+    "repo": "lukeed/clsx",
+    "elements": 11,
+    "time_s": 3.7,
+    "error": null
+  },
+  {
+    "i": 25,
+    "repo": "lukeed/uid",
+    "elements": 16,
+    "time_s": 3.5,
+    "error": null
+  },
+  {
+    "i": 26,
+    "repo": "sindresorhus/ky",
+    "elements": 157,
+    "time_s": 84.6,
+    "error": null
+  },
+  {
+    "i": 27,
+    "repo": "pointfreeco/swift-parsing",
+    "elements": 1136,
+    "time_s": 79.9,
+    "error": null
+  },
+  {
+    "i": 28,
+    "repo": "kishikawakatsumi/KeychainAccess",
+    "elements": 446,
+    "time_s": 99.9,
+    "error": null
+  },
+  {
+    "i": 29,
+    "repo": "dart-lang/http",
+    "elements": 2120,
+    "time_s": 252.0,
+    "error": null
+  },
+  {
+    "i": 30,
+    "repo": "antirez/linenoise",
+    "elements": 248,
+    "time_s": 14.0,
+    "error": null
+  },
+  {
+    "i": 31,
+    "repo": "madler/zlib",
+    "elements": 1680,
+    "time_s": 213.9,
+    "error": null
+  },
+  {
+    "i": 32,
+    "repo": "jbogard/MediatR",
+    "elements": 709,
+    "time_s": 33.9,
+    "error": null
+  },
+  {
+    "i": 33,
+    "repo": "DapperLib/Dapper",
+    "elements": 1706,
+    "time_s": 89.9,
+    "error": null
+  },
+  {
+    "i": 34,
+    "repo": "google/gson",
+    "elements": 3642,
+    "time_s": 147.5,
+    "error": null
+  },
+  {
+    "i": 35,
+    "repo": "square/moshi",
+    "elements": 2794,
+    "time_s": 130.9,
+    "error": null
+  },
+  {
+    "i": 36,
+    "repo": "elixir-lang/plug",
+    "elements": 80,
+    "time_s": 127.6,
+    "error": null
+  },
+  {
+    "i": 37,
+    "repo": "SnapKit/SnapKit",
+    "elements": 305,
+    "time_s": 33.0,
+    "error": null
+  },
+  {
+    "i": 38,
+    "repo": "Quick/Quick",
+    "elements": 1104,
+    "time_s": 60.6,
+    "error": null
+  },
+  {
+    "i": 39,
+    "repo": "vuejs/petite-vue",
+    "elements": 53,
+    "time_s": 8.3,
+    "error": null
+  },
+  {
+    "i": 40,
+    "repo": "spf13/cobra",
+    "elements": 593,
+    "time_s": 58.0,
+    "error": null
+  },
+  {
+    "i": 41,
+    "repo": "expressjs/express",
+    "elements": 232,
+    "time_s": 35.4,
+    "error": null
+  },
+  {
+    "i": 42,
+    "repo": "sinatra/sinatra",
+    "elements": 253,
+    "time_s": 108.4,
+    "error": null
+  },
+  {
+    "i": 43,
+    "repo": "fmtlib/fmt",
+    "elements": 3696,
+    "time_s": 253.7,
+    "error": null
+  },
+  {
+    "i": 44,
+    "repo": "gabime/spdlog",
+    "elements": 2882,
+    "time_s": 276.6,
+    "error": null
+  },
+  {
+    "i": 45,
+    "repo": "serde-rs/yaml",
+    "elements": 0,
+    "time_s": 0.3,
+    "error": "Command '['git', 'ls-remote', 'https://github.com/serde-rs/yaml', 'HEAD']' returned non-zero exit status 128."
+  },
+  {
+    "i": 46,
+    "repo": "sirupsen/logrus",
+    "elements": 389,
+    "time_s": 18.1,
+    "error": null
+  },
+  {
+    "i": 47,
+    "repo": "urfave/cli",
+    "elements": 898,
+    "time_s": 69.1,
+    "error": null
+  },
+  {
+    "i": 48,
+    "repo": "encode/httpx",
+    "elements": 1126,
+    "time_s": 52.3,
+    "error": null
+  },
+  {
+    "i": 49,
+    "repo": "markedjs/marked",
+    "elements": 413,
+    "time_s": 38.4,
+    "error": null
+  },
+  {
+    "i": 50,
+    "repo": "cashapp/molecule",
+    "elements": 237,
+    "time_s": 16.8,
+    "error": null
+  },
+  {
+    "i": 51,
+    "repo": "psf/requests",
+    "elements": 680,
+    "time_s": 33.6,
+    "error": null
+  },
+  {
+    "i": 52,
+    "repo": "fastify/fastify",
+    "elements": 794,
+    "time_s": 154.9,
+    "error": null
+  },
+  {
+    "i": 53,
+    "repo": "uber-go/zap",
+    "elements": 1116,
+    "time_s": 77.6,
+    "error": null
+  },
+  {
+    "i": 54,
+    "repo": "BurntSushi/toml",
+    "elements": 401,
+    "time_s": 31.6,
+    "error": null
+  },
+  {
+    "i": 55,
+    "repo": "square/okio",
+    "elements": 7429,
+    "time_s": 290.7,
+    "error": null
+  },
+  {
+    "i": 56,
+    "repo": "pallets/click",
+    "elements": 1357,
+    "time_s": 61.8,
+    "error": null
+  },
+  {
+    "i": 57,
+    "repo": "koajs/koa",
+    "elements": 184,
+    "time_s": 18.9,
+    "error": null
+  },
+  {
+    "i": 58,
+    "repo": "gin-gonic/gin",
+    "elements": 1289,
+    "time_s": 78.2,
+    "error": null
+  },
+  {
+    "i": 59,
+    "repo": "rayon-rs/rayon",
+    "elements": 2341,
+    "time_s": 99.3,
+    "error": null
+  },
+  {
+    "i": 60,
+    "repo": "square/javapoet",
+    "elements": 897,
+    "time_s": 39.8,
+    "error": null
+  },
+  {
+    "i": 61,
+    "repo": "pytest-dev/pytest",
+    "elements": 5817,
+    "time_s": 315.5,
+    "error": null
+  },
+  {
+    "i": 62,
+    "repo": "tj/commander.js",
+    "elements": 406,
+    "time_s": 54.6,
+    "error": null
+  },
+  {
+    "i": 63,
+    "repo": "stretchr/testify",
+    "elements": 1534,
+    "time_s": 95.3,
+    "error": null
+  },
+  {
+    "i": 64,
+    "repo": "clap-rs/clap",
+    "elements": 3741,
+    "time_s": 242.5,
+    "error": null
+  },
+  {
+    "i": 65,
+    "repo": "square/wire",
+    "elements": 10361,
+    "time_s": 743.2,
+    "error": null
+  },
+  {
+    "i": 66,
+    "repo": "pydantic/pydantic-core",
+    "elements": 3772,
+    "time_s": 222.9,
+    "error": null
+  },
+  {
+    "i": 67,
+    "repo": "axios/axios",
+    "elements": 359,
+    "time_s": 56.7,
+    "error": null
+  },
+  {
+    "i": 68,
+    "repo": "labstack/echo",
+    "elements": 1162,
+    "time_s": 109.9,
+    "error": null
+  },
+  {
+    "i": 69,
+    "repo": "tokio-rs/bytes",
+    "elements": 706,
+    "time_s": 28.8,
+    "error": null
+  },
+  {
+    "i": 70,
+    "repo": "ReactiveX/RxKotlin",
+    "elements": 630,
+    "time_s": 23.8,
+    "error": null
+  },
+  {
+    "i": 71,
+    "repo": "tiangolo/fastapi",
+    "elements": 4518,
+    "time_s": 286.9,
+    "error": null
+  },
+  {
+    "i": 72,
+    "repo": "date-fns/date-fns",
+    "elements": 1771,
+    "time_s": 317.8,
+    "error": null
+  },
+  {
+    "i": 73,
+    "repo": "gofiber/fiber",
+    "elements": 2892,
+    "time_s": 231.9,
+    "error": null
+  },
+  {
+    "i": 74,
+    "repo": "hyperium/hyper",
+    "elements": 1328,
+    "time_s": 80.3,
+    "error": null
+  },
+  {
+    "i": 75,
+    "repo": "spring-projects/spring-petclinic",
+    "elements": 240,
+    "time_s": 69.6,
+    "error": null
+  },
+  {
+    "i": 76,
+    "repo": "celery/celery",
+    "elements": 7475,
+    "time_s": 334.0,
+    "error": null
+  },
+  {
+    "i": 77,
+    "repo": "reduxjs/redux",
+    "elements": 299,
+    "time_s": 188.7,
+    "error": null
+  },
+  {
+    "i": 78,
+    "repo": "hashicorp/go-multierror",
+    "elements": 46,
+    "time_s": 3.4,
+    "error": null
+  },
+  {
+    "i": 79,
+    "repo": "crossbeam-rs/crossbeam",
+    "elements": 1877,
+    "time_s": 108.8,
+    "error": null
+  },
+  {
+    "i": 80,
+    "repo": "JakeWharton/timber",
+    "elements": 437,
+    "time_s": 23.9,
+    "error": null
+  },
+  {
+    "i": 81,
+    "repo": "pallets/jinja",
+    "elements": 1587,
+    "time_s": 74.8,
+    "error": null
+  },
+  {
+    "i": 82,
+    "repo": "sindresorhus/got",
+    "elements": 358,
+    "time_s": 61.3,
+    "error": null
+  },
+  {
+    "i": 83,
+    "repo": "julienschmidt/httprouter",
+    "elements": 85,
+    "time_s": 8.9,
+    "error": null
+  },
+  {
+    "i": 84,
+    "repo": "seanmonstar/reqwest",
+    "elements": 1270,
+    "time_s": 60.7,
+    "error": null
+  },
+  {
+    "i": 85,
+    "repo": "mapstruct/mapstruct",
+    "elements": 17324,
+    "time_s": 709.4,
+    "error": null
+  },
+  {
+    "i": 86,
+    "repo": "urllib3/urllib3",
+    "elements": 1726,
+    "time_s": 99.1,
+    "error": null
+  },
+  {
+    "i": 87,
+    "repo": "fastify/light-my-request",
+    "elements": 56,
+    "time_s": 14.7,
+    "error": null
+  },
+  {
+    "i": 88,
+    "repo": "gorilla/websocket",
+    "elements": 277,
+    "time_s": 22.1,
+    "error": null
+  },
+  {
+    "i": 89,
+    "repo": "image-rs/image",
+    "elements": 1737,
+    "time_s": 121.0,
+    "error": null
+  },
+  {
+    "i": 90,
+    "repo": "google/dagger",
+    "elements": 14814,
+    "time_s": 747.7,
+    "error": null
+  },
+  {
+    "i": 91,
+    "repo": "python-poetry/poetry-core",
+    "elements": 2437,
+    "time_s": 138.7,
+    "error": null
+  },
+  {
+    "i": 92,
+    "repo": "vitejs/vite-plugin-react",
+    "elements": 1034,
+    "time_s": 93.6,
+    "error": null
+  },
+  {
+    "i": 93,
+    "repo": "mitchellh/mapstructure",
+    "elements": 170,
+    "time_s": 16.7,
+    "error": null
+  },
+  {
+    "i": 94,
+    "repo": "actix/actix-web",
+    "elements": 3615,
+    "time_s": 194.3,
+    "error": null
+  },
+  {
+    "i": 95,
+    "repo": "square/retrofit",
+    "elements": 3819,
+    "time_s": 840.4,
+    "error": null
+  },
+  {
+    "i": 96,
+    "repo": "python-attrs/attrs",
+    "elements": 1057,
+    "time_s": 62.7,
+    "error": null
+  },
+  {
+    "i": 97,
+    "repo": "remix-run/react-router",
+    "elements": 2734,
+    "time_s": 336.0,
+    "error": null
+  },
+  {
+    "i": 98,
+    "repo": "spf13/viper",
+    "elements": 391,
+    "time_s": 25.5,
+    "error": null
+  },
+  {
+    "i": 99,
+    "repo": "serde-rs/serde",
+    "elements": 1784,
+    "time_s": 117.0,
+    "error": null
+  },
+  {
+    "i": 100,
+    "repo": "square/retrofit",
+    "elements": 3819,
+    "time_s": 867.1,
+    "error": null
+  }
+]

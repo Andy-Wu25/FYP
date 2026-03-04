@@ -220,7 +220,7 @@ def _render_index_block(stats: Dict, show_licenses: bool = False) -> List[str]:
 
     # Repositories
     lines.append(_sub_header("Repositories"))
-    lines.extend(_dist_rows(stats["repos"], top_n=min(8, len(stats["repos"])), make_url=_make_repo_url))
+    lines.extend(_dist_rows(stats["repos"], top_n=len(stats["repos"]), make_url=_make_repo_url))
     lines.append("")
 
     # Licenses (public only) or Element Kinds (private)

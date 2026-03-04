@@ -18,10 +18,12 @@ build/
 .mypy_cache/
 
 # Code-sim local DB paths (if configured inside repo)
+code_similarity_tool/.code-sim/shared-db/chroma.sqlite3
 .code-sim-db/
 .git/.code-sim-db/
 code_similarity_tool/.code-sim/
 code_similarity_tool/.code-sim/snapshots/testing/snapshots
+code_similarity_tool/.code-sim
 
 # macOS
 .DS_Store

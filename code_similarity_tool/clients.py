@@ -45,6 +45,29 @@ class CodeVectorStore:
         return {"public_source_id": public_source_id}
 
     @staticmethod
+    def _where_public_repo(source_url: str) -> Dict[str, Any]:
+        return {"source_url": source_url}
+
+    @staticmethod
+    def _get_all_ids(collection, where: Optional[Dict[str, Any]] = None, page_size: int = 5_000) -> List[str]:
+        offset = 0
+        out: List[str] = []
+        while True:
+            kw: Dict[str, Any] = {
+                "limit": page_size,
+                "offset": offset,
+            }
+            if where:
+                kw["where"] = where
+            result = collection.get(**kw)
+            ids = result.get("ids") or []
+            out.extend(ids)
+            if len(ids) < page_size:
+                break
+            offset += page_size
+        return out
+
+    @staticmethod
     def _delete_ids_in_chunks(collection, ids: List[str], chunk_size: int = 500) -> int:
         if not ids:
             return 0
@@ -61,24 +84,24 @@ class CodeVectorStore:
         return [id_ for id_ in existing_ids if id_ not in keep_ids]
 
     def delete_private_repo_entries(self, org_id: str, repo_id: str) -> int:
-        existing = self.private_collection.get(where=self._where_private_repo(org_id, repo_id))
-        ids = existing.get("ids") or []
+        ids = self._get_all_ids(self.private_collection, where=self._where_private_repo(org_id, repo_id))
         return self._delete_ids_in_chunks(self.private_collection, ids)
 
     def delete_public_source_entries(self, public_source_id: str) -> int:
-        existing = self.public_collection.get(where=self._where_public_source(public_source_id))
-        ids = existing.get("ids") or []
+        ids = self._get_all_ids(self.public_collection, where=self._where_public_source(public_source_id))
+        return self._delete_ids_in_chunks(self.public_collection, ids)
+
+    def delete_public_repo_entries(self, source_url: str) -> int:
+        ids = self._get_all_ids(self.public_collection, where=self._where_public_repo(source_url))
         return self._delete_ids_in_chunks(self.public_collection, ids)
 
     def delete_private_repo_stale_entries(self, org_id: str, repo_id: str, keep_ids: List[str]) -> int:
-        existing = self.private_collection.get(where=self._where_private_repo(org_id, repo_id))
-        ids = existing.get("ids") or []
+        ids = self._get_all_ids(self.private_collection, where=self._where_private_repo(org_id, repo_id))
         stale_ids = self._compute_stale_ids(ids, set(keep_ids))
         return self._delete_ids_in_chunks(self.private_collection, stale_ids)
 
     def delete_public_source_stale_entries(self, public_source_id: str, keep_ids: List[str]) -> int:
-        existing = self.public_collection.get(where=self._where_public_source(public_source_id))
-        ids = existing.get("ids") or []
+        ids = self._get_all_ids(self.public_collection, where=self._where_public_source(public_source_id))
         stale_ids = self._compute_stale_ids(ids, set(keep_ids))
         return self._delete_ids_in_chunks(self.public_collection, stale_ids)
 

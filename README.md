@@ -82,6 +82,8 @@ pip install -e .
 - `code-sim-index-public <url>`
   - Explicit operator command for public indexing.
   - `--debug-element-index N` prints the Nth collected public element and exits (for embedding failure diagnosis).
+- `code-sim-remove-public <url>`
+  - Remove all indexed public entries for a GitHub repository URL (all indexed commits for that repo).
 - `code-sim-install-hook --stage pre-push`
   - Install pre-push hook to run `code-sim-update`.
 
@@ -116,6 +118,13 @@ pip install -e .
   - Default: `60`
 - `VLLM_VERIFY_MODELS`
   - `1` to probe `/v1/models`, `0` to skip
+- `VLLM_LONG_TEXT_MODE`
+  - How to handle code elements longer than `VLLM_MAX_CHARS`.
+  - `chunk` (default): split into overlapping chunks, embed each chunk, then average back to one vector.
+  - `truncate`: keep legacy behavior and cut the tail off.
+- `VLLM_CHUNK_OVERLAP`
+  - Overlap in characters between adjacent chunks when `VLLM_LONG_TEXT_MODE=chunk`.
+  - Default: `512` (capped internally relative to `VLLM_MAX_CHARS`)
 
 ## Recommended Workflows
 
@@ -176,6 +185,12 @@ code-sim-index --url https://github.com/<owner>/<repo>
 
 ```bash
 code-sim-index-public https://github.com/<owner>/<repo> --ref v1.2.3
+```
+
+3. remove a previously indexed public repo
+
+```bash
+code-sim-remove-public https://github.com/<owner>/<repo>
 ```
 
 Validation performed before indexing:
