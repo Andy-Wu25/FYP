@@ -27,6 +27,9 @@ bot = [
   "PyJWT>=2.8.0",
   "cryptography>=42.0.0",
 ]
+charts = [
+  "matplotlib>=3.7.0",
+]
 
 [project.scripts]
 code-sim-index         = "code_similarity_tool.index:main"
@@ -41,6 +44,12 @@ code-sim-ignore        = "code_similarity_tool.cli:init_ignore"
 code-sim-install-hook  = "code_similarity_tool.cli:install_git_hook"
 code-sim-bot-serve     = "code_similarity_tool.bot_serve:main"
 code-sim-stats         = "code_similarity_tool.stats:main"
+code-sim-snapshot-save   = "code_similarity_tool.snapshot:main_save"
+code-sim-snapshot-list   = "code_similarity_tool.snapshot:main_list"
+code-sim-snapshot-load   = "code_similarity_tool.snapshot:main_load"
+code-sim-snapshot-delete = "code_similarity_tool.snapshot:main_delete"
+code-sim-eval          = "code_similarity_tool.evaluate:main"
+code-sim-eval-charts   = "code_similarity_tool.eval_charts:main"
 
 [tool.setuptools]
 packages = ["code_similarity_tool", "code_similarity_tool.bot"]

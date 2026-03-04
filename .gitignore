@@ -20,6 +20,8 @@ build/
 # Code-sim local DB paths (if configured inside repo)
 .code-sim-db/
 .git/.code-sim-db/
+code_similarity_tool/.code-sim/
+code_similarity_tool/.code-sim/snapshots/testing/snapshots
 
 # macOS
 .DS_Store
