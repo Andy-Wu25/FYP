@@ -25,5 +25,6 @@ code_similarity_tool/.code-sim/
 code_similarity_tool/.code-sim/snapshots/testing/snapshots
 code_similarity_tool/.code-sim
 
+code_similarity_tool/.code-sim/shared-db
 # macOS
 .DS_Store
