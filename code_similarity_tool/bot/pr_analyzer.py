@@ -15,13 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from ..check_utils import extract_hits
-from ..clients import CodeVectorStore
-from ..code_parser import CodeElement, extract_code_elements
-from ..embeddings import EmbeddingClient
-from ..language_detection import has_language_hint, is_probably_binary
-from ..runtime import load_runtime_context, parse_staged_new_ranges
-from ..source_filtering import is_noise_source_path
+from ..checking.check_utils import extract_hits
+from ..infra.clients import CodeVectorStore
+from ..core.code_parser import CodeElement, extract_code_elements
+from ..infra.embeddings import EmbeddingClient
+from ..core.language_detection import has_language_hint, is_probably_binary
+from ..core.runtime import load_runtime_context, parse_staged_new_ranges
+from ..core.source_filtering import is_noise_source_path
 from .config import BotConfig
 from .github_api import PRFile
 

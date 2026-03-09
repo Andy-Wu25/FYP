@@ -32,25 +32,36 @@ charts = [
 ]
 
 [project.scripts]
-code-sim-index         = "code_similarity_tool.index:main"
-code-sim-index-private = "code_similarity_tool.index:main_private_url"
-code-sim-index-public  = "code_similarity_tool.public_index:main"
-code-sim-remove-public = "code_similarity_tool.public_remove:main"
-code-sim-update        = "code_similarity_tool.update:main"
-code-sim-check         = "code_similarity_tool.code_similarity:main"
-code-sim-check-private = "code_similarity_tool.code_similarity:main_private"
-code-sim-check-self    = "code_similarity_tool.check_self:main"
-code-sim-check-public  = "code_similarity_tool.check_public:main"
-code-sim-ignore        = "code_similarity_tool.cli:init_ignore"
-code-sim-install-hook  = "code_similarity_tool.cli:install_git_hook"
-code-sim-bot-serve     = "code_similarity_tool.bot_serve:main"
-code-sim-stats         = "code_similarity_tool.stats:main"
-code-sim-snapshot-save   = "code_similarity_tool.snapshot:main_save"
-code-sim-snapshot-list   = "code_similarity_tool.snapshot:main_list"
-code-sim-snapshot-load   = "code_similarity_tool.snapshot:main_load"
-code-sim-snapshot-delete = "code_similarity_tool.snapshot:main_delete"
-code-sim-eval          = "code_similarity_tool.evaluate:main"
-code-sim-eval-charts   = "code_similarity_tool.eval_charts:main"
+code-sim-index           = "code_similarity_tool.indexing.index:main"
+code-sim-index-private   = "code_similarity_tool.indexing.index:main_private_url"
+code-sim-index-public    = "code_similarity_tool.indexing.public_index:main"
+code-sim-remove-public   = "code_similarity_tool.indexing.public_remove:main"
+code-sim-update          = "code_similarity_tool.indexing.update:main"
+code-sim-check           = "code_similarity_tool.checking.code_similarity:main"
+code-sim-check-private   = "code_similarity_tool.checking.code_similarity:main_private"
+code-sim-check-self      = "code_similarity_tool.checking.check_self:main"
+code-sim-check-public    = "code_similarity_tool.checking.check_public:main"
+code-sim-ignore          = "code_similarity_tool.tools.cli:init_ignore"
+code-sim-install-hook    = "code_similarity_tool.tools.cli:install_git_hook"
+code-sim-bot-serve       = "code_similarity_tool.bot.serve:main"
+code-sim-stats           = "code_similarity_tool.tools.stats:main"
+code-sim-snapshot-save   = "code_similarity_tool.tools.snapshot:main_save"
+code-sim-snapshot-list   = "code_similarity_tool.tools.snapshot:main_list"
+code-sim-snapshot-load   = "code_similarity_tool.tools.snapshot:main_load"
+code-sim-snapshot-delete = "code_similarity_tool.tools.snapshot:main_delete"
+code-sim-eval            = "code_similarity_tool.tools.evaluate:main"
+code-sim-eval-private    = "code_similarity_tool.tools.evaluate:main_private"
+code-sim-eval-public     = "code_similarity_tool.tools.evaluate:main_public"
+code-sim-eval-charts     = "code_similarity_tool.tools.eval_charts:main"
+code-sim-batch-index     = "code_similarity_tool.tools.batch_index:main"
 
 [tool.setuptools]
-packages = ["code_similarity_tool", "code_similarity_tool.bot"]
+packages = [
+    "code_similarity_tool",
+    "code_similarity_tool.core",
+    "code_similarity_tool.infra",
+    "code_similarity_tool.indexing",
+    "code_similarity_tool.checking",
+    "code_similarity_tool.tools",
+    "code_similarity_tool.bot",
+]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .runtime import find_repo_root
+from ..core.runtime import find_repo_root
 
 
 IGNORE_TEMPLATE = """# Code similarity ignore file

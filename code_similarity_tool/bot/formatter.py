@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime
 from typing import Dict, List, Optional, Tuple
 
-from ..public_links import build_public_match_permalink
+from ..infra.public_links import build_public_match_permalink
 from .github_api import COMMENT_SIGNATURE
 from .pr_analyzer import ElementFinding
 

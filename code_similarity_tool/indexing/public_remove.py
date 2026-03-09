@@ -4,9 +4,9 @@ import argparse
 import logging
 import os
 
-from .clients import CodeVectorStore
+from ..infra.clients import CodeVectorStore
 from .public_index import parse_github_url
-from .runtime import load_runtime_context
+from ..core.runtime import load_runtime_context
 
 
 def _configure_logging() -> logging.Logger:

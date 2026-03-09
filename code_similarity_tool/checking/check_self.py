@@ -22,8 +22,8 @@ from .check_utils import (
     query_elements_from_args,
     validate_scope_args,
 )
-from .clients import CodeVectorStore
-from .embeddings import EmbeddingClient
+from ..infra.clients import CodeVectorStore
+from ..infra.embeddings import EmbeddingClient
 
 
 def _include_self_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:

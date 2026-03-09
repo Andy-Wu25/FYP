@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .runtime import load_runtime_context
+from ..core.runtime import load_runtime_context
 
 _META_FILE = "_snapshot_meta.json"
 _SNAPSHOTS_SUBDIR = "snapshots"

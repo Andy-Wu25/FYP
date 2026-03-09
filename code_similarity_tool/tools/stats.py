@@ -17,8 +17,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .clients import CodeVectorStore
-from .runtime import load_runtime_context
+from ..infra.clients import CodeVectorStore
+from ..core.runtime import load_runtime_context
 
 # ── ANSI codes ─────────────────────────────────────────────────────────────────
 _BOLD  = "\033[1m"

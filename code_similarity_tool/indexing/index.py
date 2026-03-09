@@ -11,17 +11,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .clients import CodeVectorStore
-from .code_parser import CodeElement, extract_code_elements, make_element_id
-from .embeddings import EmbeddingClient
-from .ignore import load_ignore_file
+from ..infra.clients import CodeVectorStore
+from ..core.code_parser import CodeElement, extract_code_elements, make_element_id
+from ..infra.embeddings import EmbeddingClient
+from ..core.ignore import load_ignore_file
 from .public_index import (
     clone_repo_at_commit,
     iter_public_repo_source_files,
     parse_github_url,
     resolve_remote_commit,
 )
-from .runtime import iter_repo_source_files, load_runtime_context
+from ..core.runtime import iter_repo_source_files, load_runtime_context
 
 
 def _configure_logging() -> logging.Logger:

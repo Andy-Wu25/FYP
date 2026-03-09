@@ -74,7 +74,7 @@ def main() -> None:
     # Startup validation — fail fast before binding the port
     # ------------------------------------------------------------------ #
     try:
-        from .bot.config import BotConfig
+        from .config import BotConfig
         cfg = BotConfig.from_env()
         log.info("Bot config loaded: check_public=%s check_private=%s top_k=%d max_distance=%.3f",
                  cfg.check_public, cfg.check_private, cfg.top_k, cfg.max_distance)
@@ -83,7 +83,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        from .bot.github_api import GitHubClient
+        from .github_api import GitHubClient
         gh = GitHubClient(cfg.app_id, cfg.private_key)
         log.info("GitHub App client initialised (app_id=%s)", cfg.app_id)
     except Exception as exc:
@@ -92,7 +92,7 @@ def main() -> None:
 
     # Build the FastAPI app
     try:
-        from .bot.server import _build_app
+        from .server import _build_app
         app = _build_app(cfg, gh)
     except Exception as exc:
         log.error("Failed to build bot server: %s", exc)

@@ -121,10 +121,10 @@ def fmt_footer(parts: List[str]) -> str:
     summary = "  " + f"  ·  ".join(parts)
     return "\n" + "━" * _W + "\n" + summary + "\n" + "━" * _W
 
-from .code_parser import CodeElement, extract_code_elements
-from .ignore import load_ignore_file
-from .language_detection import has_language_hint, is_probably_binary
-from .runtime import (
+from ..core.code_parser import CodeElement, extract_code_elements
+from ..core.ignore import load_ignore_file
+from ..core.language_detection import has_language_hint, is_probably_binary
+from ..core.runtime import (
     RuntimeContext,
     iter_repo_source_files,
     load_runtime_context,
@@ -132,7 +132,7 @@ from .runtime import (
     staged_added_modified_renamed,
     staged_hunk_line_ranges,
 )
-from .source_filtering import is_noise_source_path
+from ..core.source_filtering import is_noise_source_path
 
 HitFilter = Callable[[Dict, str, str], bool]
 QUERY_SCOPES = ("staged", "files", "repo")

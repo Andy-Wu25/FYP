@@ -21,9 +21,9 @@ from .check_utils import (
     query_elements_from_args,
     validate_scope_args,
 )
-from .clients import CodeVectorStore
-from .embeddings import EmbeddingClient
-from .public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
+from ..infra.clients import CodeVectorStore
+from ..infra.embeddings import EmbeddingClient
+from ..infra.public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
 
 
 def _include_private_hit_factory(query_repo_id: str):

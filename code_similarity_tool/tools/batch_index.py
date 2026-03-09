@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 
-from .public_index import index_public_github_repo
+from ..indexing.public_index import index_public_github_repo
 from .snapshot import cmd_save
 
 SNAPSHOT_EVERY = 10

@@ -11,14 +11,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .clients import CodeVectorStore
-from .code_parser import CodeElement, extract_code_elements
-from .embeddings import EmbeddingClient
-from .ignore import load_ignore_file
-from .language_detection import has_language_hint, is_probably_binary
-from .public_links import build_github_blob_url, build_github_commit_url
-from .runtime import load_runtime_context
-from .source_filtering import is_noise_source_path
+from ..infra.clients import CodeVectorStore
+from ..core.code_parser import CodeElement, extract_code_elements
+from ..infra.embeddings import EmbeddingClient
+from ..core.ignore import load_ignore_file
+from ..core.language_detection import has_language_hint, is_probably_binary
+from ..infra.public_links import build_github_blob_url, build_github_commit_url
+from ..core.runtime import load_runtime_context
+from ..core.source_filtering import is_noise_source_path
 
 
 GITHUB_URL_RE = re.compile(

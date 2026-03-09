@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""CLI entry point: code-sim-eval
+"""CLI entry points: code-sim-eval, code-sim-eval-private, code-sim-eval-public
 
 Run the current repo through similarity checks against a snapshot and collect
 structured evaluation metrics for FYP scalability analysis.
 
 Usage:
-    code-sim-eval --snapshot NAME --json FILE [--private] [--top-k N] [--no-queries]
-                  [--relevance-threshold FLOAT]
+    code-sim-eval         --snapshot NAME --json FILE   (both private + public)
+    code-sim-eval-private --snapshot NAME --json FILE   (private index only)
+    code-sim-eval-public  --snapshot NAME --json FILE   (public index only)
+
+Common options: [--top-k N] [--no-queries] [--relevance-threshold FLOAT]
 """
 from __future__ import annotations
 
@@ -21,15 +24,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from .check_utils import (
+from ..checking.check_utils import (
     collect_full_file_query_elements,
     configure_logging,
     extract_hits,
 )
-from .clients import CodeVectorStore
-from .embeddings import EmbeddingClient
-from .ignore import load_ignore_file
-from .runtime import iter_repo_source_files, load_runtime_context
+from ..infra.clients import CodeVectorStore
+from ..infra.embeddings import EmbeddingClient
+from ..core.ignore import load_ignore_file
+from ..core.runtime import iter_repo_source_files, load_runtime_context
 from .snapshot import _META_FILE, _SNAPSHOTS_SUBDIR, _resolve_db_path, _snapshots_root
 from .stats import _LANG_EXT, _compute_stats, _get_all_metadatas, _lang
 
@@ -181,11 +184,16 @@ def run_evaluation(
     snapshot: str,
     json_path: str,
     *,
-    use_private: bool = False,
+    check_private: bool = False,
+    check_public: bool = True,
     top_k: int = 5,
     include_queries: bool = True,
     relevance_threshold: float = 0.30,
 ) -> None:
+    if not check_private and not check_public:
+        print("Error: at least one of --private or --public must be enabled.", file=sys.stderr)
+        sys.exit(1)
+
     log = configure_logging()
 
     # Resolve snapshot: either a path or a name
@@ -213,14 +221,34 @@ def run_evaluation(
         public_collection_name=ctx.public_collection_name,
         metric=ctx.metric,
     )
-    collection = store.private_collection if use_private else store.public_collection
-    collection_label = "private" if use_private else "public"
 
-    # Collect index stats
-    log.info("Collecting %s index statistics ...", collection_label)
-    all_metas = _get_all_metadatas(collection)
-    index_stats = _compute_stats(all_metas)
+    # Determine collection label
+    if check_private and check_public:
+        collection_label = "private+public"
+    elif check_private:
+        collection_label = "private"
+    else:
+        collection_label = "public"
+
+    # Collect index stats from active collections
     index_size_bytes = _dir_size(snap_dir)
+    all_metas: List[Dict] = []
+    private_stats: Dict[str, Any] = {"total": 0, "repos": Counter(), "files": 0, "kinds": Counter(), "langs": Counter(), "licenses": Counter(), "repo_commits": {}}
+    public_stats: Dict[str, Any] = {"total": 0, "repos": Counter(), "files": 0, "kinds": Counter(), "langs": Counter(), "licenses": Counter(), "repo_commits": {}}
+
+    if check_private:
+        log.info("Collecting private index statistics ...")
+        priv_metas = _get_all_metadatas(store.private_collection)
+        private_stats = _compute_stats(priv_metas)
+        all_metas.extend(priv_metas)
+
+    if check_public:
+        log.info("Collecting public index statistics ...")
+        pub_metas = _get_all_metadatas(store.public_collection)
+        public_stats = _compute_stats(pub_metas)
+        all_metas.extend(pub_metas)
+
+    index_stats = _compute_stats(all_metas)
 
     total_elements = index_stats["total"]
     total_repos = len(index_stats["repos"])
@@ -256,9 +284,8 @@ def run_evaluation(
     embed_ms_per_element = (t_embed * 1000) / len(query_elements) if query_elements else 0
 
     # Query each element against the snapshot
-    log.info("Querying %d elements against snapshot (top_k=%d) ...", len(query_elements), top_k)
+    log.info("Querying %d elements against snapshot [%s] (top_k=%d) ...", len(query_elements), collection_label, top_k)
     pool_size = max(top_k * 4, 20)
-    hit_filter = _include_skip_self if use_private else _include_any
 
     all_top1_distances: List[float] = []
     all_top1_gaps: List[float] = []
@@ -272,24 +299,45 @@ def run_evaluation(
     per_query_unique_repos: List[int] = []  # unique repos per query
     kind_distances: Dict[str, List[float]] = {}  # kind -> top-1 distances
     lang_distances: Dict[str, List[float]] = {}  # language -> top-1 distances
+    total_private_hits = 0
+    total_public_hits = 0
 
     for i, ((rel_path, element), vector) in enumerate(zip(query_elements, vectors)):
         t0_q = time.monotonic()
-        if use_private:
+        merged_hits: List[Tuple[float, Dict]] = []
+
+        if check_private:
             results = store.query_private_by_embedding(vector, org_id=ctx.org_id, n_results=pool_size)
-        else:
+            private_hits = extract_hits(
+                results,
+                top_k=top_k,
+                max_distance=None,
+                query_rel=rel_path,
+                query_hash=element["hash"],
+                include_hit=_include_skip_self,
+            )
+            total_private_hits += len(private_hits)
+            merged_hits.extend(private_hits)
+
+        if check_public:
             results = store.query_public_by_embedding(vector, n_results=pool_size)
+            public_hits = extract_hits(
+                results,
+                top_k=top_k,
+                max_distance=None,
+                query_rel=rel_path,
+                query_hash=element["hash"],
+                include_hit=_include_any,
+            )
+            total_public_hits += len(public_hits)
+            merged_hits.extend(public_hits)
+
+        # Sort merged hits by distance and take top-k
+        merged_hits.sort(key=lambda x: x[0])
+        hits = merged_hits[:top_k]
+
         t_q = time.monotonic() - t0_q
         query_latencies_ms.append(t_q * 1000)
-
-        hits = extract_hits(
-            results,
-            top_k=top_k,
-            max_distance=None,
-            query_rel=rel_path,
-            query_hash=element["hash"],
-            include_hit=hit_filter,
-        )
 
         n_hits = len(hits)
         queries_with_results.append(n_hits)
@@ -454,10 +502,12 @@ def run_evaluation(
 
     # Index overview
     print()
-    print(f"  {_C}Index{_R}")
+    print(f"  {_C}Index ({collection_label}){_R}")
     print(f"    Elements   {_B}{total_elements:,}{_R}")
     print(f"    Repos      {_B}{total_repos}{_R}")
     print(f"    Files      {_B}{total_files:,}{_R}")
+    if check_private and check_public:
+        print(f"    Private    {_B}{private_stats['total']:,}{_R}     Public     {_B}{public_stats['total']:,}{_R}")
 
     # Distance stats
     print()
@@ -495,11 +545,36 @@ def run_evaluation(
     print(f"    Queries    {_B}{n_queries}{_R}")
     print(f"    Embed      {_B}{embed_ms_per_element:.1f}{_R} ms/el")
     print(f"    Query      {_B}{latency_stats.get('mean_ms', 0):.1f}{_R} ms/el")
+    if check_private and check_public:
+        print(f"    Priv hits  {_B}{total_private_hits}{_R}       Pub hits   {_B}{total_public_hits}{_R}")
 
     print()
     print("\u2501" * _W)
 
     # Build output JSON
+    index_json: Dict[str, Any] = {
+        "total_elements": total_elements,
+        "total_repos": total_repos,
+        "total_files": total_files,
+        "size_bytes": index_size_bytes,
+        "by_repo": dict(index_stats["repos"].most_common()),
+        "by_license": dict(index_stats["licenses"].most_common()),
+    }
+    if check_private and check_public:
+        index_json["private_elements"] = private_stats["total"]
+        index_json["private_repos"] = len(private_stats["repos"])
+        index_json["public_elements"] = public_stats["total"]
+        index_json["public_repos"] = len(public_stats["repos"])
+
+    query_summary: Dict[str, Any] = {
+        "total_queries": n_queries,
+        "queries_with_hits": sum(1 for c in queries_with_results if c >= 1),
+    }
+    if check_private:
+        query_summary["total_private_hits"] = total_private_hits
+    if check_public:
+        query_summary["total_public_hits"] = total_public_hits
+
     output: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "snapshot": snapshot_name,
@@ -508,18 +583,8 @@ def run_evaluation(
         "repo": ctx.repo_name,
         "top_k": top_k,
         "relevance_threshold": relevance_threshold,
-        "index": {
-            "total_elements": total_elements,
-            "total_repos": total_repos,
-            "total_files": total_files,
-            "size_bytes": index_size_bytes,
-            "by_repo": dict(index_stats["repos"].most_common()),
-            "by_license": dict(index_stats["licenses"].most_common()),
-        },
-        "query_summary": {
-            "total_queries": n_queries,
-            "queries_with_hits": sum(1 for c in queries_with_results if c >= 1),
-        },
+        "index": index_json,
+        "query_summary": query_summary,
         "retrieval_quality": {
             "top1_distance": dist_stats,
             "hit_rate_at_threshold": hit_rates,
@@ -563,23 +628,67 @@ def run_evaluation(
     print(f"JSON written -> {json_path}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="code-sim-eval",
-        description="Evaluate code similarity against a snapshot and collect structured metrics.",
-    )
+def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument("--snapshot", required=True, help="Snapshot name or path to snapshot directory")
     parser.add_argument("--json", required=True, metavar="FILE", help="Output JSON file path")
-    parser.add_argument("--private", action="store_true", help="Query private index instead of public")
     parser.add_argument("--top-k", type=int, default=5, help="Number of results per query (default: 5)")
     parser.add_argument("--no-queries", action="store_true", help="Omit per-query raw data from JSON output")
     parser.add_argument("--relevance-threshold", type=float, default=0.30, help="Distance threshold for Precision@k and MRR (default: 0.30)")
+    return parser
+
+
+def main() -> None:
+    """Evaluate against both private and public indexes."""
+    parser = _build_parser(
+        prog="code-sim-eval",
+        description="Evaluate code similarity against both private and public indexes in a snapshot.",
+    )
     args = parser.parse_args()
 
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        use_private=args.private,
+        check_private=True,
+        check_public=True,
+        top_k=max(1, args.top_k),
+        include_queries=not args.no_queries,
+        relevance_threshold=args.relevance_threshold,
+    )
+
+
+def main_private() -> None:
+    """Evaluate against the private index only."""
+    parser = _build_parser(
+        prog="code-sim-eval-private",
+        description="Evaluate code similarity against the private org-scoped index in a snapshot.",
+    )
+    args = parser.parse_args()
+
+    run_evaluation(
+        snapshot=args.snapshot,
+        json_path=args.json,
+        check_private=True,
+        check_public=False,
+        top_k=max(1, args.top_k),
+        include_queries=not args.no_queries,
+        relevance_threshold=args.relevance_threshold,
+    )
+
+
+def main_public() -> None:
+    """Evaluate against the public index only."""
+    parser = _build_parser(
+        prog="code-sim-eval-public",
+        description="Evaluate code similarity against the public index in a snapshot.",
+    )
+    args = parser.parse_args()
+
+    run_evaluation(
+        snapshot=args.snapshot,
+        json_path=args.json,
+        check_private=False,
+        check_public=True,
         top_k=max(1, args.top_k),
         include_queries=not args.no_queries,
         relevance_threshold=args.relevance_threshold,
