@@ -94,3 +94,40 @@ def install_git_hook() -> None:
 
     hook_path.chmod(0o755)
     print(f"Installed code-sim hook at stage '{args.stage}'.")
+
+
+def delete_git_hook() -> None:
+    parser = argparse.ArgumentParser(prog="code-sim-delete-hook")
+    parser.add_argument(
+        "--stage",
+        choices=["pre-push", "pre-commit"],
+        default="pre-push",
+        help="Hook stage to remove. Default is pre-push.",
+    )
+    args = parser.parse_args()
+
+    repo_root = find_repo_root()
+    hook_path = repo_root / ".git" / "hooks" / args.stage
+
+    if not hook_path.exists():
+        print(f"No {args.stage} hook found at {hook_path}.")
+        return
+
+    current = hook_path.read_text(encoding="utf-8")
+
+    if MARKER_START not in current:
+        print(f"No code-sim block found in {hook_path}.")
+        return
+
+    before, _, tail = current.partition(MARKER_START)
+    _, _, after = tail.partition(MARKER_END)
+    remaining = before + after.lstrip("\n")
+
+    # If only the shebang (or nothing) remains, delete the file
+    stripped = remaining.strip()
+    if not stripped or stripped == "#!/bin/sh":
+        hook_path.unlink()
+        print(f"Deleted {hook_path} (no other hooks remained).")
+    else:
+        hook_path.write_text(remaining, encoding="utf-8")
+        print(f"Removed code-sim block from {hook_path}.")
