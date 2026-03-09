@@ -162,7 +162,6 @@ def run_evaluation(
     snapshot: str,
     json_path: str,
     *,
-    snapshot_dir: str | None = None,
     check_private: bool = False,
     check_public: bool = True,
     top_k: int = 5,
@@ -175,8 +174,8 @@ def run_evaluation(
 
     log = configure_logging()
 
-    # Resolve snapshot: path takes priority, then name lookup under snapshot_dir
-    snap_dir = resolve_snapshot(snapshot, snapshot_dir=snapshot_dir)
+    # Resolve snapshot: path takes priority, then name lookup in default location
+    snap_dir = resolve_snapshot(snapshot)
     snapshot_name = snap_dir.name
 
     # Load snapshot metadata
@@ -614,10 +613,6 @@ def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
         help="Snapshot name (looked up in default location) or path to a snapshot directory",
     )
     parser.add_argument("--json", required=True, metavar="FILE", help="Output JSON file path")
-    parser.add_argument(
-        "--snapshot-dir", default=None,
-        help="Directory containing named snapshots (default: <CODE_SIM_DB_PATH>/../snapshots/)",
-    )
     parser.add_argument("--top-k", type=int, default=5, help="Number of results per query (default: 5)")
     parser.add_argument("--no-queries", action="store_true", help="Omit per-query raw data from JSON output")
     parser.add_argument("--relevance-threshold", type=float, default=0.30, help="Distance threshold for Precision@k and MRR (default: 0.30)")
@@ -635,7 +630,7 @@ def main() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        snapshot_dir=args.snapshot_dir,
+
         check_private=True,
         check_public=True,
         top_k=max(1, args.top_k),
@@ -655,7 +650,7 @@ def main_private() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        snapshot_dir=args.snapshot_dir,
+
         check_private=True,
         check_public=False,
         top_k=max(1, args.top_k),
@@ -675,7 +670,7 @@ def main_public() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        snapshot_dir=args.snapshot_dir,
+
         check_private=False,
         check_public=True,
         top_k=max(1, args.top_k),
