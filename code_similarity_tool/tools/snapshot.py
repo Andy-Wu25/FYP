@@ -2,13 +2,16 @@
 """CLI entry point: code-sim-snapshot
 
 Manage ChromaDB snapshots for evaluation workflows.
-Snapshots are stored at <db-path>/snapshots/<name>/.
+
+The active database (CODE_SIM_DB_PATH or ~/.code-sim/chroma) is the source
+for ``save`` and the restore target for ``load``.  Use ``--snapshot-dir``
+to control where named snapshots are stored on disk.
 
 Usage:
-    code-sim-snapshot save <name> [--db-path PATH] [--force]
-    code-sim-snapshot list [--db-path PATH]
-    code-sim-snapshot load <name> [--db-path PATH]
-    code-sim-snapshot delete <name> [--db-path PATH]
+    code-sim-snapshot-save   <name> [--snapshot-dir DIR] [--force]
+    code-sim-snapshot-list          [--snapshot-dir DIR]
+    code-sim-snapshot-load   <name> [--snapshot-dir DIR]
+    code-sim-snapshot-delete <name> [--snapshot-dir DIR]
 """
 from __future__ import annotations
 
@@ -28,19 +31,22 @@ _SNAPSHOTS_SUBDIR = "snapshots"
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-def _resolve_db_path(override: Optional[str]) -> Path:
-    if override:
-        return Path(override).expanduser().resolve()
+def _active_db_path() -> Path:
+    """Return the active ChromaDB path (from env or default)."""
     ctx = load_runtime_context()
     return ctx.db_path
 
 
-def _snapshots_root(db_path: Path) -> Path:
-    return db_path.parent / _SNAPSHOTS_SUBDIR
+def _default_snapshots_dir() -> Path:
+    """Default directory for named snapshots: <db-path-parent>/snapshots/."""
+    return _active_db_path().parent / _SNAPSHOTS_SUBDIR
 
 
-def _snapshot_dir(db_path: Path, name: str) -> Path:
-    return _snapshots_root(db_path) / name
+def _resolve_snapshots_dir(override: Optional[str]) -> Path:
+    """Return the snapshots directory, using *override* when provided."""
+    if override:
+        return Path(override).expanduser().resolve()
+    return _default_snapshots_dir()
 
 
 def _validate_name(name: str) -> None:
@@ -65,21 +71,24 @@ def _dir_size(path: Path) -> int:
     return total
 
 
-def cmd_save(name: str, db_path_override: Optional[str], force: bool) -> None:
+def cmd_save(name: str, snapshot_dir: Optional[str], force: bool) -> None:
     _validate_name(name)
-    db_path = _resolve_db_path(db_path_override)
+    db_path = _active_db_path()
 
     if not db_path.is_dir():
         print(f"Error: database directory does not exist: {db_path}", file=sys.stderr)
         sys.exit(1)
 
-    dest = _snapshot_dir(db_path, name)
+    snap_root = _resolve_snapshots_dir(snapshot_dir)
+    dest = snap_root / name
+
     if dest.exists():
         if not force:
-            print(f"Error: snapshot '{name}' already exists. Use --force to overwrite.", file=sys.stderr)
+            print(f"Error: snapshot '{name}' already exists at {dest}. Use --force to overwrite.", file=sys.stderr)
             sys.exit(1)
         shutil.rmtree(dest)
 
+    snap_root.mkdir(parents=True, exist_ok=True)
     print(f"Copying {db_path} -> {dest} ...")
     shutil.copytree(db_path, dest)
 
@@ -94,9 +103,8 @@ def cmd_save(name: str, db_path_override: Optional[str], force: bool) -> None:
     print(f"Snapshot '{name}' saved ({_fmt_size(size)})")
 
 
-def cmd_list(db_path_override: Optional[str]) -> None:
-    db_path = _resolve_db_path(db_path_override)
-    snap_root = _snapshots_root(db_path)
+def cmd_list(snapshot_dir: Optional[str]) -> None:
+    snap_root = _resolve_snapshots_dir(snapshot_dir)
 
     if not snap_root.is_dir():
         print(f"No snapshots found in {snap_root}.")
@@ -126,15 +134,16 @@ def cmd_list(db_path_override: Optional[str]) -> None:
         print(f"{d.name:<30} {size:>10}   {created}")
 
 
-def cmd_load(name: str, db_path_override: Optional[str] = None) -> None:
+def cmd_load(name: str, snapshot_dir: Optional[str] = None) -> None:
     _validate_name(name)
-    db_path = _resolve_db_path(db_path_override)
-    src = _snapshot_dir(db_path, name)
+    snap_root = _resolve_snapshots_dir(snapshot_dir)
+    src = snap_root / name
 
     if not src.is_dir():
-        print(f"Error: snapshot '{name}' not found in {db_path}.", file=sys.stderr)
+        print(f"Error: snapshot '{name}' not found in {snap_root}.", file=sys.stderr)
         sys.exit(1)
 
+    db_path = _active_db_path()
     print(f"Restoring snapshot '{name}' -> {db_path} ...")
     if db_path.exists():
         shutil.rmtree(db_path)
@@ -143,20 +152,45 @@ def cmd_load(name: str, db_path_override: Optional[str] = None) -> None:
     print(f"Snapshot '{name}' loaded.")
 
 
-def cmd_delete(name: str, db_path_override: Optional[str] = None) -> None:
+def cmd_delete(name: str, snapshot_dir: Optional[str] = None) -> None:
     _validate_name(name)
-    db_path = _resolve_db_path(db_path_override)
-    target = _snapshot_dir(db_path, name)
+    snap_root = _resolve_snapshots_dir(snapshot_dir)
+    target = snap_root / name
 
     if not target.is_dir():
-        print(f"Error: snapshot '{name}' not found in {db_path}.", file=sys.stderr)
+        print(f"Error: snapshot '{name}' not found in {snap_root}.", file=sys.stderr)
         sys.exit(1)
 
     shutil.rmtree(target)
     print(f"Snapshot '{name}' deleted.")
 
 
-_DB_PATH_HELP = "Override database path (default: CODE_SIM_DB_PATH or ~/.code-sim/chroma)"
+def resolve_snapshot(snapshot: str, snapshot_dir: Optional[str] = None) -> Path:
+    """Resolve a snapshot argument to a directory path.
+
+    Resolution order:
+    1. If *snapshot* is an existing directory (absolute or relative), use it directly.
+    2. Look up *snapshot* as a name under *snapshot_dir* (or the default snapshots root).
+    """
+    candidate = Path(snapshot).expanduser().resolve()
+    if candidate.is_dir():
+        return candidate
+
+    snap_root = _resolve_snapshots_dir(snapshot_dir)
+    snap_dir = snap_root / snapshot
+    if snap_dir.is_dir():
+        return snap_dir
+
+    print(f"Error: snapshot '{snapshot}' not found.", file=sys.stderr)
+    print(f"  Checked as path: {candidate}", file=sys.stderr)
+    print(f"  Checked as name: {snap_dir}", file=sys.stderr)
+    sys.exit(1)
+
+
+_SNAPSHOT_DIR_HELP = (
+    "Directory for named snapshots "
+    "(default: <CODE_SIM_DB_PATH>/../snapshots/)"
+)
 
 
 def main_save() -> None:
@@ -165,10 +199,10 @@ def main_save() -> None:
         description="Save current DB as a named snapshot.",
     )
     parser.add_argument("name", help="Snapshot name (alphanumeric, hyphens, underscores)")
-    parser.add_argument("--db-path", default=None, help=_DB_PATH_HELP)
+    parser.add_argument("--snapshot-dir", default=None, help=_SNAPSHOT_DIR_HELP)
     parser.add_argument("--force", action="store_true", help="Overwrite existing snapshot")
     args = parser.parse_args()
-    cmd_save(args.name, args.db_path, args.force)
+    cmd_save(args.name, args.snapshot_dir, args.force)
 
 
 def main_list() -> None:
@@ -176,9 +210,9 @@ def main_list() -> None:
         prog="code-sim-snapshot-list",
         description="List all snapshots.",
     )
-    parser.add_argument("--db-path", default=None, help=_DB_PATH_HELP)
+    parser.add_argument("--snapshot-dir", default=None, help=_SNAPSHOT_DIR_HELP)
     args = parser.parse_args()
-    cmd_list(args.db_path)
+    cmd_list(args.snapshot_dir)
 
 
 def main_load() -> None:
@@ -187,9 +221,9 @@ def main_load() -> None:
         description="Replace active DB with a snapshot.",
     )
     parser.add_argument("name", help="Snapshot name to load")
-    parser.add_argument("--db-path", default=None, help=_DB_PATH_HELP)
+    parser.add_argument("--snapshot-dir", default=None, help=_SNAPSHOT_DIR_HELP)
     args = parser.parse_args()
-    cmd_load(args.name, args.db_path)
+    cmd_load(args.name, args.snapshot_dir)
 
 
 def main_delete() -> None:
@@ -198,6 +232,6 @@ def main_delete() -> None:
         description="Delete a snapshot.",
     )
     parser.add_argument("name", help="Snapshot name to delete")
-    parser.add_argument("--db-path", default=None, help=_DB_PATH_HELP)
+    parser.add_argument("--snapshot-dir", default=None, help=_SNAPSHOT_DIR_HELP)
     args = parser.parse_args()
-    cmd_delete(args.name, args.db_path)
+    cmd_delete(args.name, args.snapshot_dir)

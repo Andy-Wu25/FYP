@@ -169,7 +169,7 @@ def run_batch(start_from: int = 1) -> None:
             snap_name = f"{i}repos"
             print(f"         SNAPSHOT '{snap_name}' ...", flush=True)
             try:
-                cmd_save(snap_name, db_path_override=None, force=True)
+                cmd_save(snap_name, snapshot_dir=None, force=True)
                 print(f"         SNAPSHOT saved")
             except SystemExit:
                 print(f"         SNAPSHOT FAILED for '{snap_name}'")

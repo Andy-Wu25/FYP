@@ -9,7 +9,7 @@ Usage:
     code-sim-eval-private --snapshot NAME --json FILE   (private index only)
     code-sim-eval-public  --snapshot NAME --json FILE   (public index only)
 
-Common options: [--top-k N] [--no-queries] [--relevance-threshold FLOAT]
+Common options: [--snapshot-dir DIR] [--top-k N] [--no-queries] [--relevance-threshold FLOAT]
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from ..infra.clients import CodeVectorStore
 from ..infra.embeddings import EmbeddingClient
 from ..core.ignore import load_ignore_file
 from ..core.runtime import iter_repo_source_files, load_runtime_context
-from .snapshot import _META_FILE, _SNAPSHOTS_SUBDIR, _resolve_db_path, _snapshots_root
+from .snapshot import _META_FILE, resolve_snapshot
 from .stats import _LANG_EXT, _compute_stats, _get_all_metadatas, _lang
 
 
@@ -158,32 +158,11 @@ def _breakdown_stats(values: List[float]) -> Dict[str, Any]:
     }
 
 
-def _resolve_snapshot(snapshot: str) -> Path:
-    """Resolve snapshot argument to a directory path.
-
-    If it's an existing directory path, use it directly.
-    Otherwise treat it as a name and look it up in the default snapshot location.
-    """
-    candidate = Path(snapshot).expanduser().resolve()
-    if candidate.is_dir():
-        return candidate
-
-    # Look up by name in default location
-    db_path = _resolve_db_path(None)
-    snap_dir = _snapshots_root(db_path) / snapshot
-    if snap_dir.is_dir():
-        return snap_dir
-
-    print(f"Error: snapshot '{snapshot}' not found.", file=sys.stderr)
-    print(f"  Checked path: {candidate}", file=sys.stderr)
-    print(f"  Checked name: {snap_dir}", file=sys.stderr)
-    sys.exit(1)
-
-
 def run_evaluation(
     snapshot: str,
     json_path: str,
     *,
+    snapshot_dir: str | None = None,
     check_private: bool = False,
     check_public: bool = True,
     top_k: int = 5,
@@ -196,8 +175,8 @@ def run_evaluation(
 
     log = configure_logging()
 
-    # Resolve snapshot: either a path or a name
-    snap_dir = _resolve_snapshot(snapshot)
+    # Resolve snapshot: path takes priority, then name lookup under snapshot_dir
+    snap_dir = resolve_snapshot(snapshot, snapshot_dir=snapshot_dir)
     snapshot_name = snap_dir.name
 
     # Load snapshot metadata
@@ -630,8 +609,15 @@ def run_evaluation(
 
 def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=prog, description=description)
-    parser.add_argument("--snapshot", required=True, help="Snapshot name or path to snapshot directory")
+    parser.add_argument(
+        "--snapshot", required=True,
+        help="Snapshot name (looked up in default location) or path to a snapshot directory",
+    )
     parser.add_argument("--json", required=True, metavar="FILE", help="Output JSON file path")
+    parser.add_argument(
+        "--snapshot-dir", default=None,
+        help="Directory containing named snapshots (default: <CODE_SIM_DB_PATH>/../snapshots/)",
+    )
     parser.add_argument("--top-k", type=int, default=5, help="Number of results per query (default: 5)")
     parser.add_argument("--no-queries", action="store_true", help="Omit per-query raw data from JSON output")
     parser.add_argument("--relevance-threshold", type=float, default=0.30, help="Distance threshold for Precision@k and MRR (default: 0.30)")
@@ -649,6 +635,7 @@ def main() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
+        snapshot_dir=args.snapshot_dir,
         check_private=True,
         check_public=True,
         top_k=max(1, args.top_k),
@@ -668,6 +655,7 @@ def main_private() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
+        snapshot_dir=args.snapshot_dir,
         check_private=True,
         check_public=False,
         top_k=max(1, args.top_k),
@@ -687,6 +675,7 @@ def main_public() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
+        snapshot_dir=args.snapshot_dir,
         check_private=False,
         check_public=True,
         top_k=max(1, args.top_k),
