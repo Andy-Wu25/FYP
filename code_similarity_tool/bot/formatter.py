@@ -231,8 +231,8 @@ def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]
 
     # Table of hits
     if index_type == "public":
-        lines.append("| # | Match | Distance | License | Link |")
-        lines.append("|---|-------|----------|---------|------|")
+        lines.append("| # | Repo | File | Function | Distance | License | Link |")
+        lines.append("|---|------|------|----------|----------|---------|------|")
         for idx, (dist, meta) in enumerate(hits, start=1):
             func = meta.get("function_name", "<unknown>")
             repo_name = meta.get("repo_name", "<unknown>")
@@ -241,7 +241,7 @@ def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]
             permalink = build_public_match_permalink(meta)
             link = f"[view]({permalink})" if permalink else "—"
             lines.append(
-                f"| {idx} | `{repo_name}` · `{file_path}` ·  `{func}` "
+                f"| {idx} | `{repo_name}` | `{file_path}` | `{func}` "
                 f"| {dist:.4f} | {license_val} | {link} |"
             )
     else:
