@@ -236,11 +236,12 @@ def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]
         for idx, (dist, meta) in enumerate(hits, start=1):
             func = meta.get("function_name", "<unknown>")
             repo_name = meta.get("repo_name", "<unknown>")
+            file_path = meta.get("file_path", "<unknown>")
             license_val = meta.get("license", "?")
             permalink = build_public_match_permalink(meta)
             link = f"[view]({permalink})" if permalink else "—"
             lines.append(
-                f"| {idx} | `{func}` · `{repo_name}` "
+                f"| {idx} | `{repo_name}` · `{file_path}` ·  `{func}` "
                 f"| {dist:.4f} | {license_val} | {link} |"
             )
     else:
