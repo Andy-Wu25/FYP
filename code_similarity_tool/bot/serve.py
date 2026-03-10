@@ -1,27 +1,16 @@
 """CLI entry point: code-sim-bot-serve
 
-Starts the GitHub PR bot webhook server. Validates all required environment
-variables and connectivity (vLLM + ChromaDB) at startup so failures are
-surfaced immediately rather than mid-webhook.
+Starts the GitHub PR bot webhook server.
 
 Usage:
-    code-sim-bot-serve [--host HOST] [--port PORT]
+    code-sim-bot-serve [--host HOST] [--port PORT] [--max-distance 0.15] ...
 
-Required environment variables:
+Required environment variables (secrets — not available as flags):
     GITHUB_APP_ID               Numeric GitHub App ID
     GITHUB_APP_PRIVATE_KEY      PEM text  (or GITHUB_APP_PRIVATE_KEY_PATH)
     GITHUB_WEBHOOK_SECRET       Webhook secret configured on the GitHub App
 
-Optional environment variables (same as CLI):
-    GITHUB_BOT_MAX_DISTANCE     Cosine distance ceiling (default 0.15)
-    GITHUB_BOT_TOP_K            Max hits per element (default 3)
-    GITHUB_BOT_CHECK_PUBLIC     Query public index (default true)
-    GITHUB_BOT_CHECK_PRIVATE    Query private index (default true)
-    GITHUB_BOT_COMMENT_ZERO     Comment when zero hits found (default false)
-    GITHUB_BOT_ALLOWED_ORGS     Comma-separated GitHub owner names (default all)
-    GITHUB_BOT_MAX_FILES        Skip PRs with more changed files (default 50)
-    GITHUB_BOT_MAX_ELEMENTS     Cap total elements per PR (default 200)
-
+All flags fall back to GITHUB_BOT_* env vars, then to defaults.
 All existing CODE_SIM_* and VLLM_* variables apply unchanged.
 """
 from __future__ import annotations
@@ -39,26 +28,67 @@ def main() -> None:
         description=(
             "Start the GitHub PR bot webhook server. "
             "Requires GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (or PATH), "
-            "and GITHUB_WEBHOOK_SECRET."
+            "and GITHUB_WEBHOOK_SECRET as environment variables."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--host",
-        default="0.0.0.0",
-        help="Bind address (default: 0.0.0.0)",
+
+    # Server options
+    server = parser.add_argument_group("server options")
+    server.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+    server.add_argument("--port", type=int, default=3000, help="Port to listen on (default: 3000)")
+    server.add_argument("--log-level", default=None, help="Override log level (default: CODE_SIM_LOG_LEVEL or INFO)")
+
+    # Analysis options
+    analysis = parser.add_argument_group("analysis options")
+    analysis.add_argument(
+        "--max-distance", type=float, default=None,
+        help="Cosine distance ceiling — lower is more similar (default: GITHUB_BOT_MAX_DISTANCE or 0.15)",
     )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=3000,
-        help="Port to listen on (default: 3000)",
+    analysis.add_argument(
+        "--top-k", type=int, default=None,
+        help="Max hits to show per element (default: GITHUB_BOT_TOP_K or 3)",
     )
-    parser.add_argument(
-        "--log-level",
-        default=None,
-        help="Override log level (default: CODE_SIM_LOG_LEVEL env or INFO)",
+    analysis.add_argument(
+        "--check-public", action="store_true", default=None, dest="check_public",
+        help="Query public index (default: true)",
     )
+    analysis.add_argument(
+        "--no-check-public", action="store_false", dest="check_public",
+        help="Disable public index queries",
+    )
+    analysis.add_argument(
+        "--check-private", action="store_true", default=None, dest="check_private",
+        help="Query private org index (default: true)",
+    )
+    analysis.add_argument(
+        "--no-check-private", action="store_false", dest="check_private",
+        help="Disable private index queries",
+    )
+    analysis.add_argument(
+        "--comment-on-zero", action="store_true", default=None, dest="comment_on_zero",
+        help="Post comment even when no hits found (default: true)",
+    )
+    analysis.add_argument(
+        "--no-comment-on-zero", action="store_false", dest="comment_on_zero",
+        help="Delete comment when no hits found",
+    )
+
+    # Scope guards
+    guards = parser.add_argument_group("scope guards")
+    guards.add_argument(
+        "--allowed-orgs", default=None,
+        help="Comma-separated GitHub owner names to allow (default: GITHUB_BOT_ALLOWED_ORGS or all)",
+    )
+    guards.add_argument(
+        "--max-files", type=int, default=None,
+        help="Skip PRs with more changed files (default: GITHUB_BOT_MAX_FILES or 50)",
+    )
+    guards.add_argument(
+        "--max-elements", type=int, default=None,
+        help="Cap total code elements analysed per PR (default: GITHUB_BOT_MAX_ELEMENTS or 200)",
+    )
+
     args = parser.parse_args()
 
     # Configure logging early
@@ -75,9 +105,24 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     try:
         from .config import BotConfig
-        cfg = BotConfig.from_env()
-        log.info("Bot config loaded: check_public=%s check_private=%s top_k=%d max_distance=%.3f",
-                 cfg.check_public, cfg.check_private, cfg.top_k, cfg.max_distance)
+        cfg = BotConfig.from_env(
+            max_distance=args.max_distance,
+            top_k=args.top_k,
+            check_public=args.check_public,
+            check_private=args.check_private,
+            comment_on_zero_hits=args.comment_on_zero,
+            allowed_orgs=args.allowed_orgs,
+            max_files_per_pr=args.max_files,
+            max_elements_per_pr=args.max_elements,
+        )
+        log.info(
+            "Bot config: max_distance=%.3f top_k=%d check_public=%s check_private=%s "
+            "comment_zero=%s max_files=%d max_elements=%d",
+            cfg.max_distance, cfg.top_k, cfg.check_public, cfg.check_private,
+            cfg.comment_on_zero_hits, cfg.max_files_per_pr, cfg.max_elements_per_pr,
+        )
+        if cfg.allowed_orgs:
+            log.info("Bot config: allowed_orgs=%s", ", ".join(sorted(cfg.allowed_orgs)))
     except (ValueError, OSError) as exc:
         log.error("Configuration error: %s", exc)
         sys.exit(1)

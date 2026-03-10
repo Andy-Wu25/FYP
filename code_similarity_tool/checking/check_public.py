@@ -25,7 +25,7 @@ from .check_utils import (
     validate_scope_args,
 )
 from ..infra.clients import CodeVectorStore
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, load_embedding_config
 from ..infra.public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
 
 
@@ -185,7 +185,12 @@ def main() -> None:
     if license_filters:
         log.info("Applying public license filter: %s", ", ".join(license_filters))
 
-    embedder = EmbeddingClient()
+    # Load index-time embedding config to match query preparation
+    index_cfg = load_embedding_config(ctx.db_path, "public")
+    resolved_max_chars = index_cfg.get("max_chars") if index_cfg else None
+    resolved_long_text_mode = index_cfg.get("long_text_mode") if index_cfg else None
+
+    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(

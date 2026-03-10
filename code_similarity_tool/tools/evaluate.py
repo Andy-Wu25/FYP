@@ -30,7 +30,7 @@ from ..checking.check_utils import (
     extract_hits,
 )
 from ..infra.clients import CodeVectorStore
-from ..infra.embeddings import EmbeddingClient, add_embedding_args
+from ..infra.embeddings import EmbeddingClient, add_embedding_args, load_embedding_config
 from ..core.ignore import load_ignore_file
 from ..core.runtime import iter_repo_source_files, load_runtime_context
 from .snapshot import _META_FILE, resolve_snapshot
@@ -219,6 +219,41 @@ def run_evaluation(
     else:
         collection_label = "public"
 
+    # Load per-collection index-time embedding configs
+    index_config_private = load_embedding_config(snap_dir, "private") if check_private else None
+    index_config_public = load_embedding_config(snap_dir, "public") if check_public else None
+
+    # Resolve effective embedding config: CLI flag > index-time config > env/default
+    cli_override = max_chars is not None or long_text_mode is not None
+    resolved_max_chars = max_chars
+    resolved_long_text_mode = long_text_mode
+
+    if not cli_override:
+        configs = [c for c in [index_config_private, index_config_public] if c is not None]
+        if len(configs) == 1:
+            cfg = configs[0]
+            resolved_max_chars = cfg.get("max_chars")
+            resolved_long_text_mode = cfg.get("long_text_mode")
+            log.info("Using index-time embedding config: max_chars=%s long_text_mode=%s", resolved_max_chars, resolved_long_text_mode)
+        elif len(configs) == 2:
+            if configs[0] == configs[1]:
+                cfg = configs[0]
+                resolved_max_chars = cfg.get("max_chars")
+                resolved_long_text_mode = cfg.get("long_text_mode")
+                log.info("Private and public index configs match: max_chars=%s long_text_mode=%s", resolved_max_chars, resolved_long_text_mode)
+            else:
+                print(
+                    "Error: private and public indexes were built with different embedding configs:\n"
+                    f"  private: {index_config_private}\n"
+                    f"  public:  {index_config_public}\n"
+                    "Use --max-chars to explicitly choose which config to query with,\n"
+                    "or run code-sim-eval-private / code-sim-eval-public separately.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+    else:
+        log.info("CLI embedding flags provided — overriding index-time config.")
+
     # Collect index stats from active collections
     index_size_bytes = _dir_size(snap_dir)
     all_metas: List[Dict] = []
@@ -267,7 +302,7 @@ def run_evaluation(
     labels = [f"{rel}:{el['name']}" for rel, el in query_elements]
 
     t0_embed = time.monotonic()
-    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
+    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
     vectors = embedder.embed_documents(texts, labels=labels)
     t_embed = time.monotonic() - t0_embed
 
@@ -573,7 +608,11 @@ def run_evaluation(
         "repo": ctx.repo_name,
         "top_k": top_k,
         "relevance_threshold": relevance_threshold,
-        "embedding_config": {
+        "index_embedding_config": {
+            "private": index_config_private,
+            "public": index_config_public,
+        },
+        "query_embedding_config": {
             "max_chars": embedder.max_chars,
             "long_text_mode": embedder.long_text_mode,
             "chunk_overlap": embedder.chunk_overlap,

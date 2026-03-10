@@ -12,7 +12,7 @@ Design constraints:
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..infra.public_links import build_public_match_permalink
 from .github_api import COMMENT_SIGNATURE
@@ -30,6 +30,10 @@ def format_report(
     head_sha: str,
     max_distance: float,
     truncated: bool = False,
+    top_k: int = 3,
+    check_private: bool = True,
+    check_public: bool = True,
+    embedding_config: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Build the full PR comment body.
 
@@ -67,6 +71,8 @@ def format_report(
 
     run_cmd = f"`code-sim-check-public --scope files <paths>`"
     lines.append(f"*Run locally: {run_cmd}*")
+    lines.append("")
+    lines.append(_format_config_block(max_distance, top_k, check_private, check_public, embedding_config))
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -132,6 +138,10 @@ def format_zero_findings_report(
     total_elements: int,
     findings: List[ElementFinding],
     max_distance: float,
+    top_k: int = 3,
+    check_private: bool = True,
+    check_public: bool = True,
+    embedding_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Compact comment for when nothing similar is found."""
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -142,8 +152,11 @@ def format_zero_findings_report(
         f"> ✅ No similarities found — {total_elements} element(s) checked "
         f"| threshold ≤ {max_distance} | *{now_utc}*",
         "",
-        _checked_elements_details(findings),
+        _format_config_block(max_distance, top_k, check_private, check_public, embedding_config),
+        "",
     ]
+    if findings:
+        lines.append(_checked_elements_details(findings))
     return "\n".join(lines)
 
 
@@ -161,6 +174,47 @@ def format_error_report(error_msg: str) -> str:
 # ------------------------------------------------------------------ #
 # Internal helpers
 # ------------------------------------------------------------------ #
+
+
+def _format_config_block(
+    max_distance: float,
+    top_k: int,
+    check_private: bool,
+    check_public: bool,
+    embedding_config: Optional[Dict[str, Any]],
+) -> str:
+    """Collapsible block showing the active analysis configuration."""
+    scope_parts = []
+    if check_private:
+        scope_parts.append("private")
+    if check_public:
+        scope_parts.append("public")
+    scope = " + ".join(scope_parts) if scope_parts else "none"
+
+    rows = [
+        f"| Max distance | `{max_distance}` |",
+        f"| Top-K | `{top_k}` |",
+        f"| Indexes | `{scope}` |",
+    ]
+    if embedding_config:
+        max_chars = embedding_config.get("max_chars", 0)
+        max_chars_display = f"`{max_chars}`" if max_chars else "`0` (full context)"
+        rows.append(f"| Embedding max chars | {max_chars_display} |")
+        if max_chars:
+            rows.append(f"| Long text mode | `{embedding_config.get('long_text_mode', 'chunk')}` |")
+            rows.append(f"| Chunk overlap | `{embedding_config.get('chunk_overlap', 512)}` |")
+        rows.append(f"| Model | `{embedding_config.get('model', '?')}` |")
+
+    table = "\n".join(rows)
+    return (
+        "<details>\n"
+        "<summary>Configuration</summary>\n\n"
+        "| Setting | Value |\n"
+        "|---------|-------|\n"
+        f"{table}\n\n"
+        "</details>"
+    )
+
 
 def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]:
     """Render one element's hits as a markdown block."""

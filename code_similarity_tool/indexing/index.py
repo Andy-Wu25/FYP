@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 from ..infra.clients import CodeVectorStore
 from ..core.code_parser import CodeElement, extract_code_elements, make_element_id
-from ..infra.embeddings import EmbeddingClient, add_embedding_args
+from ..infra.embeddings import EmbeddingClient, add_embedding_args, save_embedding_config
 from ..core.ignore import load_ignore_file
 from .public_index import (
     clone_repo_at_commit,
@@ -107,6 +107,7 @@ def sync_current_repo(
     if removed:
         log.info("[%s] removed %d stale element(s) for repo_id=%s", action_name, removed, ctx.repo_id)
 
+    save_embedding_config(ctx.db_path, embedder, "private")
     log.info("[%s] indexed %d code element(s) across %d file(s).", action_name, total, len(by_file_elements))
     return total
 
@@ -193,6 +194,7 @@ def index_private_github_repo(
     if removed:
         log.info("[index-private] removed %d stale element(s) for repo_id=%s", removed, repo_id)
 
+    save_embedding_config(ctx.db_path, embedder, "private")
     log.info("[index-private] indexed %d code element(s) from %s@%s", total, repo_name, commit_sha)
     return total
 

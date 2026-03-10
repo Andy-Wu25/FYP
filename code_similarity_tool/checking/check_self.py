@@ -23,7 +23,7 @@ from .check_utils import (
     validate_scope_args,
 )
 from ..infra.clients import CodeVectorStore
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, load_embedding_config
 
 
 def _include_self_hit(meta: Dict, query_rel: str, query_hash: str) -> bool:
@@ -70,7 +70,12 @@ def main() -> None:
     log.info("Checking %d code element(s) from %d file(s) in scope '%s' for self repo '%s'.",
              len(query_elements), len(rel_paths), args.scope, ctx.repo_name)
 
-    embedder = EmbeddingClient()
+    # Load index-time embedding config to match query preparation
+    index_cfg = load_embedding_config(ctx.db_path, "private")
+    resolved_max_chars = index_cfg.get("max_chars") if index_cfg else None
+    resolved_long_text_mode = index_cfg.get("long_text_mode") if index_cfg else None
+
+    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(

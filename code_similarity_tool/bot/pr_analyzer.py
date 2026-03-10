@@ -13,12 +13,12 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..checking.check_utils import extract_hits
 from ..infra.clients import CodeVectorStore
 from ..core.code_parser import CodeElement, extract_code_elements
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, load_embedding_config
 from ..core.language_detection import has_language_hint, is_probably_binary
 from ..core.runtime import load_runtime_context, parse_staged_new_ranges
 from ..core.source_filtering import is_noise_source_path
@@ -40,6 +40,14 @@ class ElementFinding:
     @property
     def has_hits(self) -> bool:
         return bool(self.public_hits or self.private_hits)
+
+
+@dataclass
+class AnalysisResult:
+    """Bundle of findings + the resolved embedding config for the PR comment."""
+
+    findings: List[ElementFinding]
+    embedding_config: Optional[Dict[str, Any]] = None
 
 
 def _max_file_bytes() -> int:
@@ -89,7 +97,7 @@ def analyze_pr(
     pr_files: List[PRFile],
     file_contents: Dict[str, Optional[bytes]],
     cfg: BotConfig,
-) -> List[ElementFinding]:
+) -> AnalysisResult:
     """Run the full similarity analysis pipeline on a PR.
 
     Parameters
@@ -106,9 +114,7 @@ def analyze_pr(
 
     Returns
     -------
-    List of ElementFinding — one entry per analysed code element that was
-    part of a changed hunk. Elements with no hits are still included so the
-    formatter can produce a "checked N elements" summary.
+    AnalysisResult containing findings and the resolved embedding config.
     """
     ctx = load_runtime_context()
     max_bytes = _max_file_bytes()
@@ -162,7 +168,7 @@ def analyze_pr(
         log.info(
             "[bot] No queryable code elements found in PR %s/%s#%d", owner, repo, pr_number
         )
-        return []
+        return AnalysisResult(findings=[])
 
     # Cap total elements to protect against huge PRs
     truncated = len(candidates) > cfg.max_elements_per_pr
@@ -183,7 +189,27 @@ def analyze_pr(
     log.info(
         "[bot] Embedding %d element(s) from PR %s/%s#%d", len(candidates), owner, repo, pr_number
     )
-    embedder = EmbeddingClient()
+    # Load index-time embedding config to match query preparation
+    index_cfg_priv = load_embedding_config(ctx.db_path, "private")
+    index_cfg_pub = load_embedding_config(ctx.db_path, "public")
+    configs = [c for c in [index_cfg_priv, index_cfg_pub] if c is not None]
+
+    resolved_max_chars = None
+    resolved_long_text_mode = None
+    if len(configs) == 1:
+        resolved_max_chars = configs[0].get("max_chars")
+        resolved_long_text_mode = configs[0].get("long_text_mode")
+    elif len(configs) == 2 and configs[0] == configs[1]:
+        resolved_max_chars = configs[0].get("max_chars")
+        resolved_long_text_mode = configs[0].get("long_text_mode")
+    elif len(configs) == 2:
+        log.warning(
+            "[bot] Private and public indexes have different embedding configs: "
+            "private=%s public=%s. Using env/default config for queries.",
+            index_cfg_priv, index_cfg_pub,
+        )
+
+    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
     labels = [f"{rel}:{el['name']}" for rel, el in candidates]
 
     vectors = embedder.embed_documents(
@@ -241,4 +267,12 @@ def analyze_pr(
             )
         )
 
-    return findings
+    return AnalysisResult(
+        findings=findings,
+        embedding_config={
+            "max_chars": embedder.max_chars,
+            "long_text_mode": embedder.long_text_mode,
+            "chunk_overlap": embedder.chunk_overlap,
+            "model": embedder.model,
+        },
+    )

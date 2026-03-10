@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -269,3 +271,63 @@ def add_embedding_args(parser: argparse.ArgumentParser) -> None:
         "and averages vectors, 'truncate' cuts off. Only applies when --max-chars > 0. "
         "(default: VLLM_LONG_TEXT_MODE or 'chunk')",
     )
+
+
+def _config_path(db_path: Path, collection_type: str) -> Path:
+    return db_path / f"_embedding_config_{collection_type}.json"
+
+
+def _config_dict(client: EmbeddingClient) -> Dict[str, Any]:
+    return {
+        "max_chars": client.max_chars,
+        "long_text_mode": client.long_text_mode,
+        "chunk_overlap": client.chunk_overlap,
+        "model": client.model,
+    }
+
+
+def save_embedding_config(db_path: Path, client: EmbeddingClient, collection_type: str) -> None:
+    """Save the embedding config used at index time for a collection.
+
+    The first index sets the canonical config.  Subsequent indexes that
+    use a different config will warn but NOT overwrite — the canonical
+    config stays so that eval queries match the majority of vectors.
+    To change the canonical config, delete the collection and re-index.
+    """
+    path = _config_path(db_path, collection_type)
+    new_cfg = _config_dict(client)
+
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = None
+
+        if existing and existing != new_cfg:
+            log.warning(
+                "Embedding config for %s collection differs from canonical: "
+                "canonical=%s current=%s. "
+                "Vectors in this collection are now mixed — distances may be "
+                "unreliable. Consider re-indexing the entire collection with "
+                "consistent settings.",
+                collection_type,
+                existing,
+                new_cfg,
+            )
+            return  # keep the canonical config
+
+    path.write_text(json.dumps(new_cfg, indent=2), encoding="utf-8")
+
+
+def load_embedding_config(db_path: Path, collection_type: str) -> Optional[Dict[str, Any]]:
+    """Load the embedding config saved at index time for a collection.
+
+    Returns None if no config file exists.
+    """
+    path = _config_path(db_path, collection_type)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None

@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..infra.clients import CodeVectorStore
 from ..core.code_parser import CodeElement, extract_code_elements
-from ..infra.embeddings import EmbeddingClient, add_embedding_args
+from ..infra.embeddings import EmbeddingClient, add_embedding_args, save_embedding_config
 from ..core.ignore import load_ignore_file
 from ..core.language_detection import has_language_hint, is_probably_binary
 from ..infra.public_links import build_github_blob_url, build_github_commit_url
@@ -369,6 +369,7 @@ def index_public_github_repo(
     if removed:
         log.info("[public-index] removed %d stale element(s) for source id %s", removed, public_source_id)
 
+    save_embedding_config(ctx.db_path, embedder, "public")
     log.info("[public-index] indexed %d code element(s) from %s@%s", total, canonical_url, commit_sha)
     return total
 

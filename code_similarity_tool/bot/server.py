@@ -158,7 +158,7 @@ async def _process_pr_event(
                 file_contents[filename] = result
 
         loop = asyncio.get_event_loop()
-        findings = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             None,
             lambda: analyze_pr(
                 owner=owner,
@@ -171,12 +171,18 @@ async def _process_pr_event(
             ),
         )
 
+        findings = result.findings
+        embed_cfg = result.embedding_config
         truncated = len(findings) >= cfg.max_elements_per_pr
         has_hits = any(f.has_hits for f in findings)
 
         if not findings:
             if cfg.comment_on_zero_hits:
-                body = format_zero_findings_report(0, [], cfg.max_distance)
+                body = format_zero_findings_report(
+                    0, [], cfg.max_distance,
+                    top_k=cfg.top_k, check_private=cfg.check_private,
+                    check_public=cfg.check_public, embedding_config=embed_cfg,
+                )
                 await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
             else:
                 await gh.delete_comment(owner, repo, comment_id)
@@ -190,11 +196,19 @@ async def _process_pr_event(
                 head_sha=head_sha,
                 max_distance=cfg.max_distance,
                 truncated=truncated,
+                top_k=cfg.top_k,
+                check_private=cfg.check_private,
+                check_public=cfg.check_public,
+                embedding_config=embed_cfg,
             )
             await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
         else:
             if cfg.comment_on_zero_hits:
-                body = format_zero_findings_report(len(findings), findings, cfg.max_distance)
+                body = format_zero_findings_report(
+                    len(findings), findings, cfg.max_distance,
+                    top_k=cfg.top_k, check_private=cfg.check_private,
+                    check_public=cfg.check_public, embedding_config=embed_cfg,
+                )
                 await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
             else:
                 await gh.delete_comment(owner, repo, comment_id)

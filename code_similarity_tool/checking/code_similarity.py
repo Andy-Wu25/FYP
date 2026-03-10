@@ -22,7 +22,7 @@ from .check_utils import (
     validate_scope_args,
 )
 from ..infra.clients import CodeVectorStore
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, load_embedding_config
 from ..infra.public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
 
 
@@ -94,7 +94,27 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
     log.info("Checking %d code element(s) from %d file(s) in scope '%s'.",
              len(query_elements), len(rel_paths), args.scope)
 
-    embedder = EmbeddingClient()
+    # Load index-time embedding config to match query preparation
+    index_cfg_priv = load_embedding_config(ctx.db_path, "private") if check_private else None
+    index_cfg_pub = load_embedding_config(ctx.db_path, "public") if check_public else None
+    configs = [c for c in [index_cfg_priv, index_cfg_pub] if c is not None]
+
+    resolved_max_chars = None
+    resolved_long_text_mode = None
+    if len(configs) == 1:
+        resolved_max_chars = configs[0].get("max_chars")
+        resolved_long_text_mode = configs[0].get("long_text_mode")
+    elif len(configs) == 2 and configs[0] == configs[1]:
+        resolved_max_chars = configs[0].get("max_chars")
+        resolved_long_text_mode = configs[0].get("long_text_mode")
+    elif len(configs) == 2:
+        log.warning(
+            "Private and public indexes have different embedding configs: "
+            "private=%s public=%s. Using env/default config for queries.",
+            index_cfg_priv, index_cfg_pub,
+        )
+
+    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(

@@ -1,14 +1,15 @@
-"""Bot configuration loaded from environment variables."""
+"""Bot configuration loaded from CLI flags, environment variables, or defaults."""
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass(frozen=True)
 class BotConfig:
-    # GitHub App identity
+    # GitHub App identity (env-only — secrets should not be CLI flags)
     app_id: str
     private_key: str          # PEM text of the GitHub App private key
     webhook_secret: bytes     # raw bytes of GITHUB_WEBHOOK_SECRET
@@ -29,7 +30,19 @@ class BotConfig:
     max_elements_per_pr: int  # cap total code elements analysed per PR
 
     @classmethod
-    def from_env(cls) -> "BotConfig":
+    def from_env(
+        cls,
+        *,
+        max_distance: Optional[float] = None,
+        top_k: Optional[int] = None,
+        check_public: Optional[bool] = None,
+        check_private: Optional[bool] = None,
+        comment_on_zero_hits: Optional[bool] = None,
+        allowed_orgs: Optional[str] = None,
+        max_files_per_pr: Optional[int] = None,
+        max_elements_per_pr: Optional[int] = None,
+    ) -> "BotConfig":
+        """Build config from CLI kwargs (if provided), then env vars, then defaults."""
         app_id = os.environ.get("GITHUB_APP_ID", "").strip()
         if not app_id:
             raise ValueError(
@@ -56,27 +69,61 @@ class BotConfig:
                 "Set it to the webhook secret you configured on your GitHub App."
             )
 
-        allowed_orgs_raw = os.environ.get("GITHUB_BOT_ALLOWED_ORGS", "").strip()
-        allowed_orgs = frozenset(
+        def _bool_env(var: str, default: bool) -> bool:
+            raw = os.environ.get(var, "").strip().lower()
+            if not raw:
+                return default
+            return raw not in {"0", "false"}
+
+        resolved_max_distance = (
+            max_distance if max_distance is not None
+            else float(os.environ.get("GITHUB_BOT_MAX_DISTANCE", "0.15"))
+        )
+        resolved_top_k = max(1, (
+            top_k if top_k is not None
+            else int(os.environ.get("GITHUB_BOT_TOP_K", "3"))
+        ))
+        resolved_check_public = (
+            check_public if check_public is not None
+            else _bool_env("GITHUB_BOT_CHECK_PUBLIC", True)
+        )
+        resolved_check_private = (
+            check_private if check_private is not None
+            else _bool_env("GITHUB_BOT_CHECK_PRIVATE", True)
+        )
+        resolved_comment_zero = (
+            comment_on_zero_hits if comment_on_zero_hits is not None
+            else _bool_env("GITHUB_BOT_COMMENT_ZERO", True)
+        )
+
+        allowed_orgs_raw = (
+            allowed_orgs if allowed_orgs is not None
+            else os.environ.get("GITHUB_BOT_ALLOWED_ORGS", "").strip()
+        )
+        resolved_allowed_orgs = frozenset(
             o.strip() for o in allowed_orgs_raw.split(",") if o.strip()
         )
 
-        top_k = max(1, int(os.environ.get("GITHUB_BOT_TOP_K", "3")))
+        resolved_max_files = max(1, (
+            max_files_per_pr if max_files_per_pr is not None
+            else int(os.environ.get("GITHUB_BOT_MAX_FILES", "50"))
+        ))
+        resolved_max_elements = max(1, (
+            max_elements_per_pr if max_elements_per_pr is not None
+            else int(os.environ.get("GITHUB_BOT_MAX_ELEMENTS", "200"))
+        ))
 
         return cls(
             app_id=app_id,
             private_key=private_key,
             webhook_secret=secret_str.encode(),
-            max_distance=float(os.environ.get("GITHUB_BOT_MAX_DISTANCE", "0.15")),
-            top_k=top_k,
-            pool_size=max(top_k * 4, 20),
-            check_public=os.environ.get("GITHUB_BOT_CHECK_PUBLIC", "true").strip().lower()
-            not in {"0", "false"},
-            check_private=os.environ.get("GITHUB_BOT_CHECK_PRIVATE", "true").strip().lower()
-            not in {"0", "false"},
-            comment_on_zero_hits=os.environ.get("GITHUB_BOT_COMMENT_ZERO", "false").strip().lower()
-            in {"1", "true"},
-            allowed_orgs=allowed_orgs,
-            max_files_per_pr=max(1, int(os.environ.get("GITHUB_BOT_MAX_FILES", "50"))),
-            max_elements_per_pr=max(1, int(os.environ.get("GITHUB_BOT_MAX_ELEMENTS", "200"))),
+            max_distance=resolved_max_distance,
+            top_k=resolved_top_k,
+            pool_size=max(resolved_top_k * 4, 20),
+            check_public=resolved_check_public,
+            check_private=resolved_check_private,
+            comment_on_zero_hits=resolved_comment_zero,
+            allowed_orgs=resolved_allowed_orgs,
+            max_files_per_pr=resolved_max_files,
+            max_elements_per_pr=resolved_max_elements,
         )
