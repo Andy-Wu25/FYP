@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..infra.clients import CodeVectorStore
 from ..core.code_parser import CodeElement, extract_code_elements
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, add_embedding_args
 from ..core.ignore import load_ignore_file
 from ..core.language_detection import has_language_hint, is_probably_binary
 from ..infra.public_links import build_github_blob_url, build_github_commit_url
@@ -251,6 +251,8 @@ def index_public_github_repo(
     url: str,
     ref: Optional[str] = None,
     *,
+    max_chars: int | None = None,
+    long_text_mode: str | None = None,
     debug_element_index: Optional[int] = None,
 ) -> int:
     log = _configure_logging()
@@ -320,7 +322,7 @@ def index_public_github_repo(
         log.info("[public-index] no indexable functions/methods found.")
         return 0
 
-    embedder = EmbeddingClient()
+    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
     labels = [
         _public_element_label(i + 1, rel_path, element)
         for i, (rel_path, element) in enumerate(zip(rel_paths_for_element, all_elements))
@@ -387,10 +389,17 @@ def main() -> None:
             "without indexing. Useful for diagnosing embedding failures."
         ),
     )
+    add_embedding_args(parser)
     args = parser.parse_args()
 
     try:
-        index_public_github_repo(args.url, ref=args.ref, debug_element_index=args.debug_element_index)
+        index_public_github_repo(
+            args.url,
+            ref=args.ref,
+            max_chars=args.max_chars,
+            long_text_mode=args.long_text_mode,
+            debug_element_index=args.debug_element_index,
+        )
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))
 

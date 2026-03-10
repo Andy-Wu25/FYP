@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 from ..infra.clients import CodeVectorStore
 from ..core.code_parser import CodeElement, extract_code_elements, make_element_id
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, add_embedding_args
 from ..core.ignore import load_ignore_file
 from .public_index import (
     clone_repo_at_commit,
@@ -30,7 +30,12 @@ def _configure_logging() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def sync_current_repo(action_name: str = "index") -> int:
+def sync_current_repo(
+    action_name: str = "index",
+    *,
+    max_chars: int | None = None,
+    long_text_mode: str | None = None,
+) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
 
@@ -73,7 +78,7 @@ def sync_current_repo(action_name: str = "index") -> int:
         log.info("[%s] no functions/methods found after ignore rules.", action_name)
         return 0
 
-    embedder = EmbeddingClient()
+    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
     vectors = embedder.embed_documents([element["text"] for element in all_elements])
 
     by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
@@ -106,7 +111,13 @@ def sync_current_repo(action_name: str = "index") -> int:
     return total
 
 
-def index_private_github_repo(url: str, ref: Optional[str] = None) -> int:
+def index_private_github_repo(
+    url: str,
+    ref: Optional[str] = None,
+    *,
+    max_chars: int | None = None,
+    long_text_mode: str | None = None,
+) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
 
@@ -153,7 +164,7 @@ def index_private_github_repo(url: str, ref: Optional[str] = None) -> int:
         log.info("[index-private] no functions/methods found after ignore rules.")
         return 0
 
-    embedder = EmbeddingClient()
+    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
     vectors = embedder.embed_documents([element["text"] for element in all_elements])
 
     by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
@@ -197,6 +208,7 @@ def main() -> None:
         default=None,
         help=argparse.SUPPRESS,
     )
+    add_embedding_args(parser)
     args = parser.parse_args()
 
     if args.target:
@@ -217,7 +229,11 @@ def main() -> None:
         else:
             parser.error("code-sim-index does not accept arguments. Run it from inside the repository to index.")
 
-    sync_current_repo(action_name="index")
+    sync_current_repo(
+        action_name="index",
+        max_chars=args.max_chars,
+        long_text_mode=args.long_text_mode,
+    )
 
 
 def main_private_url() -> None:
@@ -227,10 +243,16 @@ def main_private_url() -> None:
     )
     parser.add_argument("url", help="GitHub repository URL (https://github.com/<owner>/<repo>)")
     parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/sha). Defaults to HEAD.")
+    add_embedding_args(parser)
     args = parser.parse_args()
 
     try:
-        index_private_github_repo(args.url, ref=args.ref)
+        index_private_github_repo(
+            args.url,
+            ref=args.ref,
+            max_chars=args.max_chars,
+            long_text_mode=args.long_text_mode,
+        )
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))
 

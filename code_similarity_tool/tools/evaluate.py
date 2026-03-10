@@ -30,7 +30,7 @@ from ..checking.check_utils import (
     extract_hits,
 )
 from ..infra.clients import CodeVectorStore
-from ..infra.embeddings import EmbeddingClient
+from ..infra.embeddings import EmbeddingClient, add_embedding_args
 from ..core.ignore import load_ignore_file
 from ..core.runtime import iter_repo_source_files, load_runtime_context
 from .snapshot import _META_FILE, resolve_snapshot
@@ -159,9 +159,11 @@ def _breakdown_stats(values: List[float]) -> Dict[str, Any]:
 
 
 def run_evaluation(
-    snapshot: str,
+    snapshot: str | None,
     json_path: str,
     *,
+    max_chars: int | None = None,
+    long_text_mode: str | None = None,
     check_private: bool = False,
     check_public: bool = True,
     top_k: int = 5,
@@ -174,9 +176,18 @@ def run_evaluation(
 
     log = configure_logging()
 
-    # Resolve snapshot: path takes priority, then name lookup in default location
-    snap_dir = resolve_snapshot(snapshot)
-    snapshot_name = snap_dir.name
+    # Resolve evaluation target: snapshot name/path, or the active database
+    if snapshot is not None:
+        snap_dir = resolve_snapshot(snapshot)
+        snapshot_name = snap_dir.name
+    else:
+        ctx_pre = load_runtime_context()
+        snap_dir = ctx_pre.db_path
+        snapshot_name = "(active db)"
+        if not snap_dir.is_dir():
+            print(f"Error: active database not found at {snap_dir}", file=sys.stderr)
+            sys.exit(1)
+        log.info("No --snapshot provided; evaluating against active DB at %s", snap_dir)
 
     # Load snapshot metadata
     snap_meta: Dict[str, Any] = {}
@@ -256,7 +267,8 @@ def run_evaluation(
     labels = [f"{rel}:{el['name']}" for rel, el in query_elements]
 
     t0_embed = time.monotonic()
-    vectors = EmbeddingClient().embed_documents(texts, labels=labels)
+    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
+    vectors = embedder.embed_documents(texts, labels=labels)
     t_embed = time.monotonic() - t0_embed
 
     embed_ms_per_element = (t_embed * 1000) / len(query_elements) if query_elements else 0
@@ -561,6 +573,12 @@ def run_evaluation(
         "repo": ctx.repo_name,
         "top_k": top_k,
         "relevance_threshold": relevance_threshold,
+        "embedding_config": {
+            "max_chars": embedder.max_chars,
+            "long_text_mode": embedder.long_text_mode,
+            "chunk_overlap": embedder.chunk_overlap,
+            "model": embedder.model,
+        },
         "index": index_json,
         "query_summary": query_summary,
         "retrieval_quality": {
@@ -609,13 +627,15 @@ def run_evaluation(
 def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument(
-        "--snapshot", required=True,
-        help="Snapshot name (looked up in default location) or path to a snapshot directory",
+        "--snapshot", default=None,
+        help="Snapshot name or path to a snapshot directory. "
+        "If omitted, evaluates against the current active database.",
     )
     parser.add_argument("--json", required=True, metavar="FILE", help="Output JSON file path")
     parser.add_argument("--top-k", type=int, default=5, help="Number of results per query (default: 5)")
     parser.add_argument("--no-queries", action="store_true", help="Omit per-query raw data from JSON output")
     parser.add_argument("--relevance-threshold", type=float, default=0.30, help="Distance threshold for Precision@k and MRR (default: 0.30)")
+    add_embedding_args(parser)
     return parser
 
 
@@ -630,7 +650,8 @@ def main() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-
+        max_chars=args.max_chars,
+        long_text_mode=args.long_text_mode,
         check_private=True,
         check_public=True,
         top_k=max(1, args.top_k),
@@ -650,7 +671,8 @@ def main_private() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-
+        max_chars=args.max_chars,
+        long_text_mode=args.long_text_mode,
         check_private=True,
         check_public=False,
         top_k=max(1, args.top_k),
@@ -670,7 +692,8 @@ def main_public() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-
+        max_chars=args.max_chars,
+        long_text_mode=args.long_text_mode,
         check_private=False,
         check_public=True,
         top_k=max(1, args.top_k),

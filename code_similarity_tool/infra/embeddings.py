@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 from typing import List, Optional
@@ -42,7 +43,12 @@ def _format_exception_details(exc: Exception) -> str:
 class EmbeddingClient:
     """vLLM embeddings client (OpenAI-compatible)."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        max_chars: int | None = None,
+        long_text_mode: str | None = None,
+    ):
         backend = os.getenv("CODE_SIM_EMBEDDINGS_BACKEND", "vllm").strip().lower()
         if backend != "vllm":
             raise ValueError(
@@ -53,18 +59,20 @@ class EmbeddingClient:
         self.base_url = os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
         self.api_key = os.getenv("VLLM_API_KEY", "").strip()
         self.model = os.getenv("VLLM_MODEL", "Octen/Octen-Embedding-8B").strip()
-        self.timeout_s = float(os.getenv("VLLM_TIMEOUT_S", "60"))
+        self.timeout_s = float(os.getenv("VLLM_TIMEOUT_S", "120"))
         self.verify_models = os.getenv("VLLM_VERIFY_MODELS", "1").strip().lower() not in {
             "0",
             "false",
         }
         self.batch_size = max(1, int(os.getenv("VLLM_BATCH_SIZE", "64")))
-        self.max_chars = max(0, int(os.getenv("VLLM_MAX_CHARS", "16000")))
-        self.long_text_mode = os.getenv("VLLM_LONG_TEXT_MODE", "chunk").strip().lower() or "chunk"
+
+        # Text-length handling — CLI overrides take priority over env vars
+        self.max_chars = max(0, max_chars if max_chars is not None else int(os.getenv("VLLM_MAX_CHARS", "0")))
+        self.long_text_mode = (long_text_mode or os.getenv("VLLM_LONG_TEXT_MODE", "chunk")).strip().lower() or "chunk"
         if self.long_text_mode not in {"chunk", "truncate"}:
             raise ValueError(
                 f"Unsupported long text mode '{self.long_text_mode}'. "
-                "Set VLLM_LONG_TEXT_MODE=chunk or truncate."
+                "Use --long-text-mode=chunk or truncate."
             )
         raw_chunk_overlap = max(0, int(os.getenv("VLLM_CHUNK_OVERLAP", "512")))
         if self.max_chars > 0:
@@ -74,13 +82,14 @@ class EmbeddingClient:
         self.input_prefix = os.getenv("VLLM_INPUT_PREFIX", "")
 
         log.info(
-            "Embeddings backend=vllm base_url=%s model=%s batch=%d max_chars=%s long_text=%s overlap=%d auth=%s",
+            "Embeddings backend=vllm base_url=%s model=%s batch=%d max_chars=%s long_text=%s overlap=%d timeout=%ds auth=%s",
             self.base_url,
             self.model,
             self.batch_size,
-            str(self.max_chars) if self.max_chars > 0 else "disabled",
-            self.long_text_mode,
+            str(self.max_chars) if self.max_chars > 0 else "0 (full context)",
+            self.long_text_mode if self.max_chars > 0 else "n/a",
             self.chunk_overlap,
+            int(self.timeout_s),
             "set" if self.api_key else "none",
         )
         if self.input_prefix:
@@ -243,3 +252,20 @@ class EmbeddingClient:
             merged_vectors.append(self._average_vectors(all_vectors[offset : offset + count]))
             offset += count
         return merged_vectors
+
+
+def add_embedding_args(parser: argparse.ArgumentParser) -> None:
+    """Add --max-chars and --long-text-mode flags to an argument parser."""
+    group = parser.add_argument_group("embedding options")
+    group.add_argument(
+        "--max-chars", type=int, default=None,
+        help="Max characters per embedding input. 0 = no limit (full model context window). "
+        "When set > 0, texts exceeding this are handled by --long-text-mode. "
+        "(default: VLLM_MAX_CHARS or 0)",
+    )
+    group.add_argument(
+        "--long-text-mode", choices=["chunk", "truncate"], default=None,
+        help="How to handle text exceeding --max-chars: 'chunk' splits with overlap "
+        "and averages vectors, 'truncate' cuts off. Only applies when --max-chars > 0. "
+        "(default: VLLM_LONG_TEXT_MODE or 'chunk')",
+    )
