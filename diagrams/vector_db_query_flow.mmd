@@ -1,0 +1,67 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#ffffff',
+    'primaryBorderColor': '#000000',
+    'primaryTextColor': '#000000',
+    'secondaryColor': '#ffffff',
+    'lineColor': '#000000',
+    'fontSize': '14px',
+    'fontFamily': 'Times New Roman, serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 50, 'rankSpacing': 60 }
+}}%%
+
+flowchart TD
+    QUERY["Query Code Element\n(function / method text)"]
+
+    subgraph CFG_LOAD ["Embedding Config Resolution"]
+        direction TB
+        LOAD["load_embedding_config()\nfrom index-time JSON"]
+        MATCH["Match index-time\nmax_chars, long_text_mode,\nchunk_overlap, model"]
+        LOAD --> MATCH
+    end
+
+    subgraph EMBED ["Query Embedding"]
+        direction TB
+        EMB_CLIENT["EmbeddingClient\n.embed_documents()"]
+    end
+
+    VLLM(("vLLM Server\nPOST /v1/embeddings"))
+
+    subgraph SEARCH ["Vector Similarity Search"]
+        direction TB
+        PUB_Q["query_public_by_embedding()\nn_results = pool_size"]
+        PRIV_Q["query_private_by_embedding()\nn_results = pool_size\nwhere: {org_id}"]
+    end
+
+    DB[("ChromaDB\nHNSW Cosine\nSearch")]
+
+    subgraph FILTER ["Result Filtering (extract_hits)"]
+        direction TB
+        F1["1. Custom Filter\n(exclude self-matches)"]
+        F2["2. Distance Threshold\n(distance ≤ max_distance)"]
+        F3["3. Top-K Selection\n(first K passing hits)"]
+        F1 --> F2 --> F3
+    end
+
+    RESULTS["Ranked Hits\nList of (distance, metadata)"]
+
+    QUERY --> CFG_LOAD
+    CFG_LOAD --> EMBED
+    EMB_CLIENT <-->|"HTTP POST"| VLLM
+    EMBED -->|"Query Vector"| SEARCH
+    SEARCH <-->|"Cosine\nSimilarity"| DB
+    PUB_Q -->|"Over-fetched\nPool (top_k × 4)"| FILTER
+    PRIV_Q -->|"Over-fetched\nPool (top_k × 4)"| FILTER
+    FILTER --> RESULTS
+
+    classDef default fill:#fff,stroke:#000,stroke-width:2px,color:#000
+
+    class QUERY,LOAD,MATCH,EMB_CLIENT,PUB_Q,PRIV_Q,F1,F2,F3,RESULTS default
+    class VLLM,DB default
+
+    style CFG_LOAD fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style EMBED fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style SEARCH fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style FILTER fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4

@@ -1,0 +1,39 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#ffffff',
+    'primaryBorderColor': '#000000',
+    'primaryTextColor': '#000000',
+    'secondaryColor': '#ffffff',
+    'lineColor': '#000000',
+    'fontSize': '13px',
+    'fontFamily': 'Times New Roman, serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 40, 'rankSpacing': 50 }
+}}%%
+
+flowchart LR
+    subgraph PRIVATE ["Private Collection Schema"]
+        direction TB
+        P_ID["<b>ID</b>\nSHA-256(org_id : repo_id\n: file_path : content_hash)"]
+        P_EMB["<b>Embedding</b>\nfloat[] vector\n(model-dependent dimensions)"]
+        P_DOC["<b>Document</b>\nSource code text\n(full function body)"]
+        P_META["<b>Metadata</b>\norg_id · repo_id · repo_name\nfile_path · function_name\nkind · start_line · end_line\ncontent_hash"]
+    end
+
+    subgraph PUBLIC ["Public Collection Schema"]
+        direction TB
+        U_ID["<b>ID</b>\nSHA-256(public_source_id\n: file_path : content_hash)"]
+        U_EMB["<b>Embedding</b>\nfloat[] vector\n(model-dependent dimensions)"]
+        U_DOC["<b>Document</b>\nSource code text\n(full function body)"]
+        U_META["<b>Metadata</b>\npublic_source_id · source_url\nsource_owner · source_repo\nsource_commit · source_commit_url\nsource_file_url · source_file_commit\nfile_path · function_name\nkind · start_line · end_line\ncontent_hash · license · license_spdx"]
+    end
+
+    classDef default fill:#fff,stroke:#000,stroke-width:1.5px,color:#000
+    classDef idNode fill:#fff,stroke:#000,stroke-width:2px,color:#000
+
+    class P_ID,U_ID idNode
+    class P_EMB,P_DOC,P_META,U_EMB,U_DOC,U_META default
+
+    style PRIVATE fill:none,stroke:#000,stroke-width:2px
+    style PUBLIC fill:none,stroke:#000,stroke-width:2px

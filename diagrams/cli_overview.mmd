@@ -1,0 +1,68 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#ffffff',
+    'primaryBorderColor': '#000000',
+    'primaryTextColor': '#000000',
+    'secondaryColor': '#ffffff',
+    'lineColor': '#000000',
+    'fontSize': '14px',
+    'fontFamily': 'Times New Roman, serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 50, 'rankSpacing': 60 }
+}}%%
+
+flowchart TD
+    MODEL(("Embedding\nModel"))
+
+    APP["<b>Code Similarity</b>\n<b>Search Application</b>\n(CLI Tool)"]
+
+    subgraph DB ["Vector Database"]
+        direction TB
+        NNS["Nearest\nNeighbour\nSearch"]
+        VS[("Vector\nStore")]
+    end
+
+    subgraph INIT ["Database Initialisation"]
+        direction TB
+        GIT["Git\nRepository"]
+        PARSER["Tree-sitter\nCode Parser"]
+        SNIPPETS["Code\nSnippets"]
+        GIT -->|"Source\nFiles"| PARSER
+        PARSER -->|"Extracted\nFunctions"| SNIPPETS
+    end
+
+    USER(["User"]) -->|"User Query\n(code-sim-check)"| APP
+    USER -.->|"Initialisation\n(code-sim-index)"| INIT
+
+    APP <-->|"Embed Query\nElements"| MODEL
+    SNIPPETS -->|"Embed Code\nElements"| MODEL
+    MODEL -->|"Vectors"| VS
+
+    APP -->|"Query\nOperation"| NNS
+    NNS -->|"Similar\nMatches"| APP
+
+    SNIPPETS -->|"Insert\nOperation"| VS
+
+    classDef default fill:#fff,stroke:#000,stroke-width:2px,color:#000
+    classDef modelNode fill:#fff,stroke:#000,stroke-width:2.5px,color:#000
+    classDef userNode fill:#fff,stroke:#000,stroke-width:2px,color:#000
+
+    class MODEL modelNode
+    class USER userNode
+    class APP,SNIPPETS,GIT,PARSER,NNS default
+    class VS default
+
+    style DB fill:none,stroke:#1a5276,stroke-width:2px,stroke-dasharray: 6 4
+    style INIT fill:none,stroke:#006400,stroke-width:2px,stroke-dasharray: 6 4
+
+    linkStyle 0 stroke:#006400,stroke-width:1.5px
+    linkStyle 1 stroke:#006400,stroke-width:1.5px
+    linkStyle 2 stroke:#000,stroke-width:1.5px
+    linkStyle 3 stroke:#006400,stroke-width:1.5px
+    linkStyle 4 stroke:#000,stroke-width:1.5px
+    linkStyle 5 stroke:#006400,stroke-width:1.5px
+    linkStyle 6 stroke:#1a5276,stroke-width:1.5px
+    linkStyle 7 stroke:#1a5276,stroke-width:1.5px
+    linkStyle 8 stroke:#1a5276,stroke-width:1.5px
+    linkStyle 9 stroke:#006400,stroke-width:1.5px

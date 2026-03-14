@@ -1,0 +1,71 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#ffffff',
+    'primaryBorderColor': '#000000',
+    'primaryTextColor': '#000000',
+    'secondaryColor': '#ffffff',
+    'lineColor': '#000000',
+    'fontSize': '14px',
+    'fontFamily': 'Times New Roman, serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 50, 'rankSpacing': 60 }
+}}%%
+
+flowchart TD
+    SRC["Source Code\nFiles"]
+
+    subgraph PARSE ["Code Element Extraction"]
+        direction TB
+        TS["Tree-sitter\nAST Parser"]
+        ELEM["CodeElement\n{name, kind, text,\nstart_line, end_line, hash}"]
+        FB["File-level\nFallback"]
+        TS -->|"Declarations\nFound"| ELEM
+        TS -.->|"Parse Failure /\nNo Declarations"| FB --> ELEM
+    end
+
+    subgraph ID_GEN ["Unique ID Generation"]
+        direction TB
+        MAKE_ID["make_element_id()\nSHA-256(org_id : repo_id\n: file_path : content_hash)"]
+    end
+
+    subgraph EMBED ["Embedding Generation"]
+        direction TB
+        SPLIT["Text Splitting\n(if max_chars > 0)"]
+        BATCH["Batch Processing\n(batch_size = 64)"]
+        AVG["Vector Averaging\n(for chunked texts)"]
+        SPLIT --> BATCH --> AVG
+    end
+
+    VLLM(("vLLM Server\nPOST /v1/embeddings"))
+
+    subgraph STORE ["ChromaDB Upsert"]
+        direction TB
+        UPSERT["collection.upsert(\n  ids,\n  embeddings,\n  documents,\n  metadatas\n)"]
+    end
+
+    subgraph CLEANUP ["Stale Entry Cleanup"]
+        direction TB
+        DIFF["Set Difference:\nexisting_ids − current_ids"]
+        DEL["Chunked Deletion\n(batches of 500)"]
+        DIFF --> DEL
+    end
+
+    SRC --> PARSE
+    PARSE --> ID_GEN
+    ID_GEN -->|"element.text"| EMBED
+    BATCH <-->|"HTTP POST\n/v1/embeddings"| VLLM
+    EMBED -->|"Vectors +\nMetadata +\nDocuments"| STORE
+    ID_GEN -->|"element.id"| STORE
+    STORE -->|"current_ids"| CLEANUP
+
+    classDef default fill:#fff,stroke:#000,stroke-width:2px,color:#000
+
+    class SRC,TS,ELEM,FB,MAKE_ID,SPLIT,BATCH,AVG,UPSERT,DIFF,DEL default
+    class VLLM default
+
+    style PARSE fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style ID_GEN fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style EMBED fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style STORE fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4
+    style CLEANUP fill:none,stroke:#000,stroke-width:1.5px,stroke-dasharray: 6 4

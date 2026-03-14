@@ -1,0 +1,115 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#e8f4fd',
+    'primaryBorderColor': '#3182ce',
+    'primaryTextColor': '#1a365d',
+    'lineColor': '#4a5568',
+    'fontSize': '12px',
+    'fontFamily': 'Helvetica, Arial, sans-serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 20, 'rankSpacing': 30 }
+}}%%
+
+flowchart TD
+    DEV(["<b>Developer</b> opens / pushes to PR"])
+    GH_HOOK["<b>GitHub Webhook</b>  ·  <code>X-GitHub-Event: pull_request</code>\n<i>actions: opened · synchronize · reopened</i>"]
+
+    DEV --> GH_HOOK
+
+    subgraph L1["<b>① bot/serve.py + bot/config.py</b>  ·  Server Startup &amp; Configuration"]
+        direction LR
+        SERVE["<b>serve.py — main()</b>\nargparse: --host --port\n--max-distance --top-k\n--check-public --allowed-orgs\n--max-files --max-elements\n→ uvicorn.run(app)"]
+        CFG["<b>config.py — BotConfig</b> <i>frozen dataclass</i>\nfrom_env(): CLI → env → defaults\n<code>app_id · private_key · webhook_secret\nmax_distance=0.15 · top_k=3 · pool_size=20\nmax_files_per_pr=50 · max_elements_per_pr=200\nallowed_orgs · check_public · check_private\ncomment_on_zero_hits</code>"]
+    end
+
+    GH_HOOK -->|"POST /webhook"| L2
+
+    subgraph L2["<b>② bot/server.py — _build_app() → FastAPI</b>"]
+        direction LR
+        VERIFY["<b>_verify_signature()</b>\nHMAC-SHA256\nwebhook_secret"]
+        FILTER["<b>Event filter</b>\nping → pong\nnon-PR → ignore\naction check"]
+        GUARD["<b>Guards</b>\nallowed_orgs\nin_flight dedup"]
+        TASK["<b>asyncio.create_task</b>\n_process_pr_event()"]
+        VERIFY --> FILTER --> GUARD --> TASK
+    end
+
+    L1 -.->|"builds app"| L2
+
+    L2 -->|"_process_pr_event(owner, repo, pr_number, head_sha)"| L3
+
+    subgraph L3["<b>③ bot/github_api.py — GitHubClient</b>"]
+        direction TB
+        AUTH["<b>Authentication</b>\n_generate_jwt() — RS256, iss=app_id, exp=9min\n_get_token(owner) — GET /app/installations → find id\n  POST /installations/{id}/access_tokens\n  → _token_cache[owner] with 5-min refresh buffer"]
+        FETCH["<b>Data Fetching</b>\nget_pr_files() — GET /pulls/{n}/files, paginated 100/page\n  → List[<b>PRFile</b>: filename · status · patch · additions · deletions]\nget_file_content() — GET /contents/{path}?ref=sha\n  base64 decode or download_url fallback → Optional[bytes]\n  cap: cfg.max_files_per_pr (50)"]
+        COMMENT_API["<b>Comment Management</b>\nfind_bot_comment() — scan for COMMENT_SIGNATURE marker\nupsert_pr_comment() — POST (new) or PATCH (update)\ndelete_comment() — DELETE, silent on 404"]
+        AUTH --> FETCH
+    end
+
+    L3 -->|"List[PRFile] + Dict[filename → bytes]"| L4
+
+    subgraph L4["<b>④ bot/pr_analyzer.py — analyze_pr()</b>  <i>runs in thread pool via run_in_executor</i>"]
+        direction TB
+
+        S1["<b>Step 1 — Filter source files</b>\n<b>core/source_filtering.py</b> — is_noise_source_path()\n  <i>EXCLUDED_DIR_NAMES · EXCLUDED_EXTENSIONS · EXCLUDED_EXACT_FILENAMES</i>\n<b>core/language_detection.py</b> — has_language_hint() · is_probably_binary()\n  <i>identify lib + SUFFIX_TO_TREE_SITTER + HINT_TO_TREE_SITTER maps</i>\nSize guard — CODE_SIM_MAX_FILE_BYTES (250KB)"]
+
+        S2["<b>Step 2 — Parse code &amp; diff-filter changed elements</b>\n<b>core/code_parser.py</b> — extract_code_elements()\n  <i>Tree-sitter AST → function/method/constructor declarations</i>\n  <i>→ CodeElement: id · name · kind · start_line · end_line · text · hash</i>\n  <i>_file_level_elements() fallback for unparseable files</i>\n<b>core/runtime.py</b> — parse_staged_new_ranges(patch)\n  <i>Parse @@ hunk headers from PRFile.patch</i>\n_element_overlaps_any_changed_range()\n  <i>Only analyse elements touching changed lines</i>"]
+
+        ECAP["cfg.max_elements_per_pr cap (200)"]
+
+        S3["<b>Step 3 — Embed query elements</b>\n<b>infra/embeddings.py</b> — load_embedding_config(db_path, type)\n  <i>Match index-time settings for consistent query vectors</i>\n<b>EmbeddingClient</b>.embed_documents(texts, labels)\n  <i>batch_size · max_chars · long_text chunking/truncation</i>\n  → HTTP POST /v1/embeddings → <b>vLLM Server</b>"]
+
+        S4["<b>Step 4 — Query vector store &amp; filter hits</b>\n<b>infra/clients.py</b> — CodeVectorStore\n  .query_public_by_embedding(vector, n_results=pool_size)\n  .query_private_by_embedding(vector, org_id, n_results=pool_size)\n  → <b>ChromaDB</b> hnsw:cosine search\n<b>checking/check_utils.py</b> — extract_hits()\n  <i>_make_private_hit_filter() · max_distance · top_k selection</i>"]
+
+        S1 --> S2 --> ECAP --> S3 --> S4
+    end
+
+    VLLM[("<b>vLLM Embedding Server</b>\nPOST /v1/embeddings\n<i>OpenAI-compatible API\nmodel via VLLM_MODEL</i>")]
+    CHROMA[("<b>ChromaDB — PersistentClient</b>\nPrivate + Public Collections\n<i>hnsw:cosine · chroma.sqlite3</i>")]
+
+    S3 ---|"HTTP POST /v1/embeddings"| VLLM
+    S4 ---|"cosine similarity queries"| CHROMA
+
+    RESULT["<b>AnalysisResult</b> <i>dataclass</i>\nfindings: List[<b>ElementFinding</b>]\n  <i>rel_path · element · public_hits · private_hits</i>\nembedding_config: Dict"]
+
+    L4 --> RESULT
+
+    subgraph L5["<b>⑤ bot/formatter.py — Report Generation</b>"]
+        direction LR
+        RPT["<b>format_report()</b>\nGitHub-flavoured Markdown\n· COMMENT_SIGNATURE marker\n· scope summary + timestamp\n· _format_config_block() collapsible table\n· _format_finding_block() per element:\n    public: repo · file · function · distance · license · permalink\n    private: function · distance · repo · file:lines\n· _checked_elements_details() collapsible\n· 65,536 char truncation guard"]
+        ZERO["<b>format_zero_findings_report()</b>\nCompact 'no similarities' comment"]
+        ERR["<b>format_error_report()</b>\nFallback on analysis failure"]
+        PL["<b>infra/public_links.py</b>\nbuild_public_match_permalink()\nbuild_github_blob_url()\n<i>GitHub URL + #L line anchors</i>"]
+    end
+
+    RESULT --> L5
+
+    L5 -->|"Markdown body"| COMMENT_API
+    COMMENT_API -->|"POST/PATCH /issues/{pr}/comments"| GH_PR
+
+    GH_PR(["<b>GitHub PR Comment</b>\n<i>Created/updated via COMMENT_SIGNATURE\nfor idempotent upsert</i>"])
+
+    %% ── Styling ──
+    classDef triggerStyle fill:#f3e8ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef serverStyle fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#1e3a5f
+    classDef configStyle fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#334155
+    classDef authStyle fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+    classDef analyzerStyle fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    classDef infraStyle fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#831843
+    classDef formatStyle fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+    classDef dataStyle fill:#f1f5f9,stroke:#475569,stroke-width:1.5px,color:#0f172a
+
+    class DEV,GH_HOOK,GH_PR triggerStyle
+    class SERVE,VERIFY,FILTER,GUARD,TASK serverStyle
+    class CFG configStyle
+    class AUTH,FETCH,COMMENT_API authStyle
+    class S1,S2,S3,S4,ECAP analyzerStyle
+    class VLLM,CHROMA infraStyle
+    class RPT,ZERO,ERR,PL formatStyle
+    class RESULT dataStyle
+
+    style L1 fill:none,stroke:#64748b,stroke-width:1.5px,stroke-dasharray: 4 4
+    style L2 fill:none,stroke:#2563eb,stroke-width:2px
+    style L3 fill:none,stroke:#d97706,stroke-width:2px
+    style L4 fill:none,stroke:#16a34a,stroke-width:2px
+    style L5 fill:none,stroke:#4f46e5,stroke-width:2px
