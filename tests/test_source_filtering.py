@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from code_similarity_tool.runtime import iter_repo_source_files
-from code_similarity_tool.source_filtering import is_noise_source_path
+from code_similarity_tool.core.runtime import iter_repo_source_files
+from code_similarity_tool.core.source_filtering import is_noise_source_path
 
 
 class _AllowAllMatcher:

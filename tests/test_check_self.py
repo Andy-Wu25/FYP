@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from code_similarity_tool.check_self import _include_self_hit
+from code_similarity_tool.checking.check_self import _include_self_hit
 
 
 class CheckSelfFilterTest(unittest.TestCase):

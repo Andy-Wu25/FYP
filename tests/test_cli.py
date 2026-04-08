@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from code_similarity_tool.cli import _hook_block
+from code_similarity_tool.tools.cli import _hook_block
 
 
 class CliTest(unittest.TestCase):

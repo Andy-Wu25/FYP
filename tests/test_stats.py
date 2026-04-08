@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from collections import Counter
 
-from code_similarity_tool import stats
+from code_similarity_tool.tools import stats
 
 
 class StatsRenderingTest(unittest.TestCase):

@@ -8,10 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from code_similarity_tool.check_public import main as check_public_main
-from code_similarity_tool.check_public import _normalize_license_filters
-from code_similarity_tool.check_public import _suggest_license_keywords
-from code_similarity_tool.clients import CodeVectorStore
+from code_similarity_tool.checking.check_public import main as check_public_main
+from code_similarity_tool.checking.check_public import _normalize_license_filters
+from code_similarity_tool.checking.check_public import _suggest_license_keywords
+from code_similarity_tool.infra.clients import CodeVectorStore
 
 
 class PublicLicenseFilterNormalizationTest(unittest.TestCase):
@@ -60,6 +60,7 @@ class CheckPublicCliLicenseFilterTest(unittest.TestCase):
             private_collection_name="private",
             public_collection_name="public",
             metric="cosine",
+            org_id="my-org",
         )
         query_elements = [
             (
@@ -108,15 +109,18 @@ class CheckPublicCliLicenseFilterTest(unittest.TestCase):
                 "--max-distance",
                 "0.5",
             ],
-        ), patch("code_similarity_tool.check_public.configure_logging", return_value=Mock()), patch(
-            "code_similarity_tool.check_public.query_elements_from_args",
+        ), patch("code_similarity_tool.checking.check_public.configure_logging", return_value=Mock()), patch(
+            "code_similarity_tool.checking.check_public.query_elements_from_args",
             return_value=(ctx, ["src/a.py"], query_elements),
         ), patch(
-            "code_similarity_tool.check_public.EmbeddingClient",
+            "code_similarity_tool.checking.check_public.EmbeddingClient",
             return_value=embedder,
         ), patch(
-            "code_similarity_tool.check_public.CodeVectorStore",
+            "code_similarity_tool.checking.check_public.CodeVectorStore",
             return_value=store,
+        ), patch(
+            "code_similarity_tool.checking.check_public.load_embedding_config",
+            return_value=None,
         ):
             with redirect_stdout(io.StringIO()):
                 check_public_main()
@@ -133,6 +137,7 @@ class CheckPublicCliLicenseFilterTest(unittest.TestCase):
             private_collection_name="private",
             public_collection_name="public",
             metric="cosine",
+            org_id="my-org",
         )
         query_elements = [
             (
@@ -172,15 +177,18 @@ class CheckPublicCliLicenseFilterTest(unittest.TestCase):
                 "--max-distance",
                 "0.5",
             ],
-        ), patch("code_similarity_tool.check_public.configure_logging", return_value=Mock()), patch(
-            "code_similarity_tool.check_public.query_elements_from_args",
+        ), patch("code_similarity_tool.checking.check_public.configure_logging", return_value=Mock()), patch(
+            "code_similarity_tool.checking.check_public.query_elements_from_args",
             return_value=(ctx, ["src/a.py"], query_elements),
         ), patch(
-            "code_similarity_tool.check_public.EmbeddingClient",
+            "code_similarity_tool.checking.check_public.EmbeddingClient",
             return_value=embedder,
         ), patch(
-            "code_similarity_tool.check_public.CodeVectorStore",
+            "code_similarity_tool.checking.check_public.CodeVectorStore",
             return_value=store,
+        ), patch(
+            "code_similarity_tool.checking.check_public.load_embedding_config",
+            return_value=None,
         ), redirect_stdout(output):
             check_public_main()
 

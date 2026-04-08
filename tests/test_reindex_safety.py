@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from code_similarity_tool import public_index
-from code_similarity_tool.code_parser import make_element_id
-from code_similarity_tool.index import sync_current_repo
-from code_similarity_tool.public_index import index_public_github_repo
-from code_similarity_tool.runtime import RuntimeContext
+from code_similarity_tool.indexing import public_index
+from code_similarity_tool.core.code_parser import make_element_id
+from code_similarity_tool.indexing.index import sync_current_repo
+from code_similarity_tool.indexing.public_index import index_public_github_repo
+from code_similarity_tool.core.runtime import RuntimeContext
 
 
 def _runtime_ctx(repo_root: Path) -> RuntimeContext:
@@ -51,16 +51,16 @@ class ReindexSafetyTest(unittest.TestCase):
             embedder = Mock()
             embedder.embed_documents.side_effect = RuntimeError("embedding unavailable")
 
-            with patch("code_similarity_tool.index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.index.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.index.iter_repo_source_files", return_value=[file_path]
+            with patch("code_similarity_tool.indexing.index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.index.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.indexing.index.iter_repo_source_files", return_value=[file_path]
             ), patch(
-                "code_similarity_tool.index.extract_code_elements", return_value=[_sample_element()]
+                "code_similarity_tool.indexing.index.extract_code_elements", return_value=[_sample_element()]
             ), patch(
-                "code_similarity_tool.index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.index.EmbeddingClient", return_value=embedder
             ):
                 with self.assertRaises(RuntimeError):
                     sync_current_repo(action_name="index")
@@ -83,16 +83,18 @@ class ReindexSafetyTest(unittest.TestCase):
             embedder = Mock()
             embedder.embed_documents.return_value = [[0.1, 0.2]]
 
-            with patch("code_similarity_tool.index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.index.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.index.iter_repo_source_files", return_value=[file_path]
+            with patch("code_similarity_tool.indexing.index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.index.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.indexing.index.iter_repo_source_files", return_value=[file_path]
             ), patch(
-                "code_similarity_tool.index.extract_code_elements", return_value=[_sample_element()]
+                "code_similarity_tool.indexing.index.extract_code_elements", return_value=[_sample_element()]
             ), patch(
-                "code_similarity_tool.index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.index.EmbeddingClient", return_value=embedder
+            ), patch(
+                "code_similarity_tool.indexing.index.save_embedding_config"
             ):
                 total = sync_current_repo(action_name="index")
 
@@ -126,15 +128,15 @@ class ReindexSafetyTest(unittest.TestCase):
             matcher = Mock()
             matcher.allows.return_value = True
 
-            with patch("code_similarity_tool.index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.index.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.index.iter_repo_source_files", return_value=[file_path]
+            with patch("code_similarity_tool.indexing.index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.index.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.indexing.index.iter_repo_source_files", return_value=[file_path]
             ), patch(
-                "code_similarity_tool.index.extract_code_elements", return_value=[]
+                "code_similarity_tool.indexing.index.extract_code_elements", return_value=[]
             ), patch(
-                "code_similarity_tool.index.CodeVectorStore", return_value=store
-            ), patch("code_similarity_tool.index.EmbeddingClient") as embedder_cls:
+                "code_similarity_tool.indexing.index.CodeVectorStore", return_value=store
+            ), patch("code_similarity_tool.indexing.index.EmbeddingClient") as embedder_cls:
                 total = sync_current_repo(action_name="index")
 
             self.assertEqual(total, 0)
@@ -156,14 +158,16 @@ class ReindexSafetyTest(unittest.TestCase):
             embedder = Mock()
             embedder.embed_documents.return_value = [[0.1, 0.2]]
 
-            with patch("code_similarity_tool.index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.index.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.index.iter_repo_source_files", return_value=[file_path]
+            with patch("code_similarity_tool.indexing.index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.index.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.indexing.index.iter_repo_source_files", return_value=[file_path]
             ), patch(
-                "code_similarity_tool.index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.index.EmbeddingClient", return_value=embedder
+            ), patch(
+                "code_similarity_tool.indexing.index.save_embedding_config"
             ):
                 total = sync_current_repo(action_name="index")
 
@@ -184,21 +188,21 @@ class ReindexSafetyTest(unittest.TestCase):
                 repo_dir.mkdir(parents=True, exist_ok=True)
                 (repo_dir / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
             ), patch(
-                "code_similarity_tool.public_index.extract_code_elements", return_value=[_sample_element()]
+                "code_similarity_tool.indexing.public_index.extract_code_elements", return_value=[_sample_element()]
             ), patch(
-                "code_similarity_tool.public_index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.public_index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.public_index.EmbeddingClient", return_value=embedder
             ):
                 with self.assertRaises(RuntimeError):
                     index_public_github_repo("https://github.com/example/demo")
@@ -220,19 +224,21 @@ class ReindexSafetyTest(unittest.TestCase):
                 repo_dir.mkdir(parents=True, exist_ok=True)
                 (repo_dir / "a.foolang").write_text("hello unsupported language", encoding="utf-8")
 
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.foolang"],
             ), patch(
-                "code_similarity_tool.public_index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.public_index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.public_index.EmbeddingClient", return_value=embedder
+            ), patch(
+                "code_similarity_tool.indexing.public_index.save_embedding_config"
             ):
                 total = index_public_github_repo("https://github.com/example/demo")
 
@@ -254,21 +260,23 @@ class ReindexSafetyTest(unittest.TestCase):
                 repo_dir.mkdir(parents=True, exist_ok=True)
                 (repo_dir / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
             ), patch(
-                "code_similarity_tool.public_index.extract_code_elements", return_value=[_sample_element()]
+                "code_similarity_tool.indexing.public_index.extract_code_elements", return_value=[_sample_element()]
             ), patch(
-                "code_similarity_tool.public_index.CodeVectorStore", return_value=store
+                "code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store
             ), patch(
-                "code_similarity_tool.public_index.EmbeddingClient", return_value=embedder
+                "code_similarity_tool.indexing.public_index.EmbeddingClient", return_value=embedder
+            ), patch(
+                "code_similarity_tool.indexing.public_index.save_embedding_config"
             ):
                 total = index_public_github_repo("https://github.com/example/demo")
 
@@ -300,17 +308,17 @@ class ReindexSafetyTest(unittest.TestCase):
             def _clone(_url: str, _sha: str, repo_dir: Path) -> None:
                 repo_dir.mkdir(parents=True, exist_ok=True)
 
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context", return_value=ctx
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context", return_value=ctx
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files", return_value=[]
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files", return_value=[]
             ), patch(
-                "code_similarity_tool.public_index.CodeVectorStore", return_value=store
-            ), patch("code_similarity_tool.public_index.EmbeddingClient") as embedder_cls:
+                "code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store
+            ), patch("code_similarity_tool.indexing.public_index.EmbeddingClient") as embedder_cls:
                 total = index_public_github_repo("https://github.com/example/demo")
 
             public_source_id = public_index._public_source_id("https://github.com/example/demo", "abc123")

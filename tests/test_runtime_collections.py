@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from code_similarity_tool.runtime import load_runtime_context
+from code_similarity_tool.core.runtime import load_runtime_context
 
 
 class RuntimeCollectionsTest(unittest.TestCase):

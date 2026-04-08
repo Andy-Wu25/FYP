@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from code_similarity_tool.public_links import (
+from code_similarity_tool.infra.public_links import (
     build_github_blob_url,
     build_github_commit_url,
     build_public_commit_permalink,

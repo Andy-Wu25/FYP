@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from code_similarity_tool.check_utils import add_scope_argument, query_elements_from_args, validate_scope_args
-from code_similarity_tool.runtime import RuntimeContext
+from code_similarity_tool.checking.check_utils import add_scope_argument, query_elements_from_args, validate_scope_args
+from code_similarity_tool.core.runtime import RuntimeContext
 
 
 def _runtime_ctx(repo_root: Path) -> RuntimeContext:
@@ -44,10 +44,10 @@ class ScopeModesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             ctx = _runtime_ctx(repo_root)
-            with patch("code_similarity_tool.check_utils.load_runtime_context", return_value=ctx), patch(
-                "code_similarity_tool.check_utils.staged_added_modified_renamed", return_value=["a.py", "b.py"]
-            ), patch("code_similarity_tool.check_utils.resolve_optional_paths", return_value=["b.py", "c.py"]), patch(
-                "code_similarity_tool.check_utils.collect_staged_query_elements", return_value=[]
+            with patch("code_similarity_tool.checking.check_utils.load_runtime_context", return_value=ctx), patch(
+                "code_similarity_tool.checking.check_utils.staged_added_modified_renamed", return_value=["a.py", "b.py"]
+            ), patch("code_similarity_tool.checking.check_utils.resolve_optional_paths", return_value=["b.py", "c.py"]), patch(
+                "code_similarity_tool.checking.check_utils.collect_staged_query_elements", return_value=[]
             ):
                 _, rel_paths, _ = query_elements_from_args(["ignored"], scope="staged")
 
@@ -57,9 +57,9 @@ class ScopeModesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             ctx = _runtime_ctx(repo_root)
-            with patch("code_similarity_tool.check_utils.load_runtime_context", return_value=ctx), patch(
-                "code_similarity_tool.check_utils.resolve_optional_paths", return_value=["b.py", "a.py", "a.py"]
-            ), patch("code_similarity_tool.check_utils.collect_full_file_query_elements", return_value=[]):
+            with patch("code_similarity_tool.checking.check_utils.load_runtime_context", return_value=ctx), patch(
+                "code_similarity_tool.checking.check_utils.resolve_optional_paths", return_value=["b.py", "a.py", "a.py"]
+            ), patch("code_similarity_tool.checking.check_utils.collect_full_file_query_elements", return_value=[]):
                 _, rel_paths, _ = query_elements_from_args(["ignored"], scope="files")
 
         self.assertEqual(rel_paths, ["a.py", "b.py"])
@@ -72,12 +72,12 @@ class ScopeModesTest(unittest.TestCase):
             (repo_root / "sub" / "b.ts").write_text("export const x = 1;\n", encoding="utf-8")
 
             ctx = _runtime_ctx(repo_root)
-            with patch("code_similarity_tool.check_utils.load_runtime_context", return_value=ctx), patch(
-                "code_similarity_tool.check_utils.load_ignore_file", return_value=Mock()
+            with patch("code_similarity_tool.checking.check_utils.load_runtime_context", return_value=ctx), patch(
+                "code_similarity_tool.checking.check_utils.load_ignore_file", return_value=Mock()
             ), patch(
-                "code_similarity_tool.check_utils.iter_repo_source_files",
+                "code_similarity_tool.checking.check_utils.iter_repo_source_files",
                 return_value=[repo_root / "a.py", repo_root / "sub" / "b.ts"],
-            ), patch("code_similarity_tool.check_utils.collect_full_file_query_elements", return_value=[]):
+            ), patch("code_similarity_tool.checking.check_utils.collect_full_file_query_elements", return_value=[]):
                 _, rel_paths, _ = query_elements_from_args([], scope="repo")
 
         self.assertEqual(rel_paths, ["a.py", "sub/b.ts"])

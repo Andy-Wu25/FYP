@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from code_similarity_tool.clients import CodeVectorStore
-from code_similarity_tool.public_remove import remove_public_github_repo
+from code_similarity_tool.infra.clients import CodeVectorStore
+from code_similarity_tool.indexing.public_remove import remove_public_github_repo
 
 
 class PublicRemoveStoreTest(unittest.TestCase):
@@ -36,11 +36,11 @@ class PublicRemoveCommandTest(unittest.TestCase):
         store = Mock()
         store.delete_public_repo_entries.return_value = 7
 
-        with patch("code_similarity_tool.public_remove._configure_logging", return_value=Mock()) as log_cfg, patch(
-            "code_similarity_tool.public_remove.load_runtime_context",
+        with patch("code_similarity_tool.indexing.public_remove._configure_logging", return_value=Mock()) as log_cfg, patch(
+            "code_similarity_tool.indexing.public_remove.load_runtime_context",
             return_value=ctx,
         ), patch(
-            "code_similarity_tool.public_remove.CodeVectorStore",
+            "code_similarity_tool.indexing.public_remove.CodeVectorStore",
             return_value=store,
         ) as store_cls:
             removed = remove_public_github_repo("https://github.com/acme/demo.git")

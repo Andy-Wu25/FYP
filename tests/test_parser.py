@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from code_similarity_tool.code_parser import detect_lang, extract_code_elements
+from code_similarity_tool.core.code_parser import detect_lang, extract_code_elements
 
 
 class ParserTest(unittest.TestCase):

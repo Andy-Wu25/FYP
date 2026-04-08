@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from code_similarity_tool.public_index import (
+from code_similarity_tool.indexing.public_index import (
     _get_file_last_commit,
     detect_public_license,
     ensure_gnu_license,
@@ -74,19 +74,19 @@ class PublicIndexTest(unittest.TestCase):
                 (repo_dir / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
             output = io.StringIO()
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context"
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context"
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
             ), patch(
-                "code_similarity_tool.public_index.CodeVectorStore"
+                "code_similarity_tool.indexing.public_index.CodeVectorStore"
             ) as store_cls, patch(
-                "code_similarity_tool.public_index.EmbeddingClient"
+                "code_similarity_tool.indexing.public_index.EmbeddingClient"
             ) as embedder_cls, redirect_stdout(output):
                 total = index_public_github_repo(
                     "https://github.com/example/demo",
@@ -108,14 +108,14 @@ class PublicIndexTest(unittest.TestCase):
                 repo_dir.mkdir(parents=True, exist_ok=True)
                 (repo_dir / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
-            with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), patch(
-                "code_similarity_tool.public_index.load_runtime_context"
-            ), patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="abc123"), patch(
-                "code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone
+            with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), patch(
+                "code_similarity_tool.indexing.public_index.load_runtime_context"
+            ), patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="abc123"), patch(
+                "code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone
             ), patch(
-                "code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"
+                "code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"
             ), patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
             ):
                 with self.assertRaises(RuntimeError):
@@ -131,20 +131,20 @@ class GetFileLastCommitTest(unittest.TestCase):
     def test_returns_trimmed_sha_from_git_log(self) -> None:
         mock_result = Mock()
         mock_result.stdout = "881ddba1234567890abcdef1234567890abcdef12\n"
-        with patch("code_similarity_tool.public_index._run_git", return_value=mock_result):
+        with patch("code_similarity_tool.indexing.public_index._run_git", return_value=mock_result):
             sha = _get_file_last_commit(Path("/repo"), "tests/config/psql_config.py", "fallback")
         self.assertEqual(sha, "881ddba1234567890abcdef1234567890abcdef12")
 
     def test_falls_back_when_git_log_returns_empty(self) -> None:
         mock_result = Mock()
         mock_result.stdout = ""
-        with patch("code_similarity_tool.public_index._run_git", return_value=mock_result):
+        with patch("code_similarity_tool.indexing.public_index._run_git", return_value=mock_result):
             sha = _get_file_last_commit(Path("/repo"), "src/main.py", "head_fallback")
         self.assertEqual(sha, "head_fallback")
 
     def test_falls_back_when_git_raises_called_process_error(self) -> None:
         with patch(
-            "code_similarity_tool.public_index._run_git",
+            "code_similarity_tool.indexing.public_index._run_git",
             side_effect=subprocess.CalledProcessError(128, "git"),
         ):
             sha = _get_file_last_commit(Path("/repo"), "src/main.py", "head_fallback")
@@ -152,7 +152,7 @@ class GetFileLastCommitTest(unittest.TestCase):
 
     def test_falls_back_when_git_raises_os_error(self) -> None:
         with patch(
-            "code_similarity_tool.public_index._run_git",
+            "code_similarity_tool.indexing.public_index._run_git",
             side_effect=OSError("git not found"),
         ):
             sha = _get_file_last_commit(Path("/repo"), "src/main.py", "head_fallback")
@@ -162,7 +162,7 @@ class GetFileLastCommitTest(unittest.TestCase):
         mock_result = Mock()
         mock_result.stdout = "deadbeef\n"
         repo_dir = Path("/some/repo")
-        with patch("code_similarity_tool.public_index._run_git", return_value=mock_result) as mock_run:
+        with patch("code_similarity_tool.indexing.public_index._run_git", return_value=mock_result) as mock_run:
             _get_file_last_commit(repo_dir, "tests/config/psql_config.py", "fallback")
         mock_run.assert_called_once_with(
             ["log", "-1", "--format=%H", "--", "tests/config/psql_config.py"],
@@ -172,7 +172,7 @@ class GetFileLastCommitTest(unittest.TestCase):
     def test_strips_whitespace_from_sha(self) -> None:
         mock_result = Mock()
         mock_result.stdout = "  abc123  \n"
-        with patch("code_similarity_tool.public_index._run_git", return_value=mock_result):
+        with patch("code_similarity_tool.indexing.public_index._run_git", return_value=mock_result):
             sha = _get_file_last_commit(Path("/repo"), "file.py", "fallback")
         self.assertEqual(sha, "abc123")
 
@@ -199,25 +199,26 @@ class PublicIndexFileCommitTest(unittest.TestCase):
             (repo_dir / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
         return [
-            patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()),
-            patch("code_similarity_tool.public_index.load_runtime_context"),
-            patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="head_sha"),
-            patch("code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone),
-            patch("code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"),
+            patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()),
+            patch("code_similarity_tool.indexing.public_index.load_runtime_context"),
+            patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="head_sha"),
+            patch("code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone),
+            patch("code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"),
             patch(
-                "code_similarity_tool.public_index.iter_public_repo_source_files",
+                "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                 side_effect=lambda repo_dir: [repo_dir / "a.py"],
             ),
             patch(
-                "code_similarity_tool.public_index.extract_code_elements",
+                "code_similarity_tool.indexing.public_index.extract_code_elements",
                 return_value=[_sample_element()],
             ),
-            patch("code_similarity_tool.public_index.CodeVectorStore", return_value=store),
-            patch("code_similarity_tool.public_index.EmbeddingClient", return_value=embedder),
+            patch("code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store),
+            patch("code_similarity_tool.indexing.public_index.EmbeddingClient", return_value=embedder),
             patch(
-                "code_similarity_tool.public_index._get_file_last_commit",
+                "code_similarity_tool.indexing.public_index._get_file_last_commit",
                 return_value=file_commit_sha,
             ),
+            patch("code_similarity_tool.indexing.public_index.save_embedding_config"),
         ]
 
     def test_source_file_url_always_uses_head_commit(self) -> None:
@@ -228,7 +229,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
         embedder.embed_documents.return_value = [[0.1, 0.2]]
 
         patches = self._base_patches(store, embedder, file_commit_sha="file_specific_sha")
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9], patches[10]:
             index_public_github_repo("https://github.com/example/demo")
 
         base_meta = store.upsert_public_code_elements.call_args.kwargs["base_metadata"]
@@ -243,7 +244,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
         embedder.embed_documents.return_value = [[0.1, 0.2]]
 
         patches = self._base_patches(store, embedder, file_commit_sha="file_specific_sha")
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9], patches[10]:
             index_public_github_repo("https://github.com/example/demo")
 
         base_meta = store.upsert_public_code_elements.call_args.kwargs["base_metadata"]
@@ -256,7 +257,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
         embedder.embed_documents.return_value = [[0.1, 0.2]]
 
         patches = self._base_patches(store, embedder, file_commit_sha="file_specific_sha")
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9], patches[10]:
             index_public_github_repo("https://github.com/example/demo")
 
         base_meta = store.upsert_public_code_elements.call_args.kwargs["base_metadata"]
@@ -269,7 +270,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
         embedder.embed_documents.return_value = [[0.1, 0.2]]
 
         patches = self._base_patches(store, embedder, file_commit_sha="file_sha_abc")
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9], patches[10]:
             index_public_github_repo("https://github.com/example/demo")
 
         base_meta = store.upsert_public_code_elements.call_args.kwargs["base_metadata"]
@@ -283,7 +284,7 @@ class PublicIndexFileCommitTest(unittest.TestCase):
         embedder.embed_documents.return_value = [[0.1, 0.2]]
 
         patches = self._base_patches(store, embedder, file_commit_sha="head_sha")
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9], patches[10]:
             index_public_github_repo("https://github.com/example/demo")
 
         base_meta = store.upsert_public_code_elements.call_args.kwargs["base_metadata"]
@@ -306,25 +307,26 @@ class PublicIndexFileCommitTest(unittest.TestCase):
             captured_calls.append((repo_dir, rel_path, fallback))
             return "captured_sha"
 
-        with patch("code_similarity_tool.public_index._configure_logging", return_value=Mock()), \
-             patch("code_similarity_tool.public_index.load_runtime_context"), \
-             patch("code_similarity_tool.public_index.resolve_remote_commit", return_value="head_sha"), \
-             patch("code_similarity_tool.public_index.clone_repo_at_commit", side_effect=_clone), \
-             patch("code_similarity_tool.public_index.detect_public_license", return_value="GPL-3.0"), \
+        with patch("code_similarity_tool.indexing.public_index._configure_logging", return_value=Mock()), \
+             patch("code_similarity_tool.indexing.public_index.load_runtime_context"), \
+             patch("code_similarity_tool.indexing.public_index.resolve_remote_commit", return_value="head_sha"), \
+             patch("code_similarity_tool.indexing.public_index.clone_repo_at_commit", side_effect=_clone), \
+             patch("code_similarity_tool.indexing.public_index.detect_public_license", return_value="GPL-3.0"), \
              patch(
-                 "code_similarity_tool.public_index.iter_public_repo_source_files",
+                 "code_similarity_tool.indexing.public_index.iter_public_repo_source_files",
                  side_effect=lambda repo_dir: [repo_dir / "a.py"],
              ), \
              patch(
-                 "code_similarity_tool.public_index.extract_code_elements",
+                 "code_similarity_tool.indexing.public_index.extract_code_elements",
                  return_value=[_sample_element()],
              ), \
-             patch("code_similarity_tool.public_index.CodeVectorStore", return_value=store), \
-             patch("code_similarity_tool.public_index.EmbeddingClient", return_value=embedder), \
+             patch("code_similarity_tool.indexing.public_index.CodeVectorStore", return_value=store), \
+             patch("code_similarity_tool.indexing.public_index.EmbeddingClient", return_value=embedder), \
              patch(
-                 "code_similarity_tool.public_index._get_file_last_commit",
+                 "code_similarity_tool.indexing.public_index._get_file_last_commit",
                  side_effect=_fake_file_commit,
-             ):
+             ), \
+             patch("code_similarity_tool.indexing.public_index.save_embedding_config"):
             index_public_github_repo("https://github.com/example/demo")
 
         self.assertEqual(len(captured_calls), 1)

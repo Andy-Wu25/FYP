@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from code_similarity_tool.check_utils import collect_staged_query_elements
-from code_similarity_tool.runtime import parse_staged_new_ranges
+from code_similarity_tool.checking.check_utils import collect_staged_query_elements
+from code_similarity_tool.core.runtime import parse_staged_new_ranges
 
 
 class StagedHunksTest(unittest.TestCase):
@@ -65,10 +65,10 @@ index 1111111..2222222 100644
                 },
             ]
 
-            with patch("code_similarity_tool.check_utils.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.check_utils.read_index_blob", return_value=b"dummy"
-            ), patch("code_similarity_tool.check_utils.staged_hunk_line_ranges", return_value=[(12, 12)]), patch(
-                "code_similarity_tool.check_utils.extract_code_elements", return_value=elements
+            with patch("code_similarity_tool.checking.check_utils.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.checking.check_utils.read_index_blob", return_value=b"dummy"
+            ), patch("code_similarity_tool.checking.check_utils.staged_hunk_line_ranges", return_value=[(12, 12)]), patch(
+                "code_similarity_tool.checking.check_utils.extract_code_elements", return_value=elements
             ):
                 out = collect_staged_query_elements(repo_root, [rel_path])
 
@@ -86,10 +86,10 @@ index 1111111..2222222 100644
             matcher = Mock()
             matcher.allows.return_value = True
 
-            with patch("code_similarity_tool.check_utils.load_ignore_file", return_value=matcher), patch(
-                "code_similarity_tool.check_utils.read_index_blob", return_value=b"dummy"
-            ), patch("code_similarity_tool.check_utils.staged_hunk_line_ranges", return_value=[]), patch(
-                "code_similarity_tool.check_utils.extract_code_elements",
+            with patch("code_similarity_tool.checking.check_utils.load_ignore_file", return_value=matcher), patch(
+                "code_similarity_tool.checking.check_utils.read_index_blob", return_value=b"dummy"
+            ), patch("code_similarity_tool.checking.check_utils.staged_hunk_line_ranges", return_value=[]), patch(
+                "code_similarity_tool.checking.check_utils.extract_code_elements",
                 return_value=[
                     {
                         "id": "a",
