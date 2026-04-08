@@ -46,9 +46,12 @@ def main() -> None:
     except Exception:
         repo_root = str(find_repo_root())
         repo_name = Path(repo_root).name
-        org_id = os.getenv("CODE_SIM_ORG_ID", "local")
+        org_id = os.getenv("CODE_SIM_ORG_ID", "my-org")
         repo_id = "?"
-        db_path = os.getenv("CODE_SIM_DB_PATH", str(Path.home() / ".code-sim" / "chroma"))
+        db_path = os.getenv(
+            "CODE_SIM_DB_PATH",
+            "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+        )
         priv_coll = os.getenv("CODE_SIM_PRIVATE_COLLECTION", "project_code_private")
         pub_coll = os.getenv("CODE_SIM_PUBLIC_COLLECTION", "project_code_public")
         metric = os.getenv("CODE_SIM_METRIC", "cosine")
@@ -67,13 +70,16 @@ def main() -> None:
     api_key_raw = os.getenv("VLLM_API_KEY")
     api_key_display = "***" if api_key_raw else "(not set)"
     api_key_env = api_key_raw is not None
-    prefix_val, prefix_env = _val("VLLM_INPUT_PREFIX", "")
+    prefix_val, prefix_env = _val("VLLM_INPUT_PREFIX", "\n")
     prefix_display = repr(prefix_val) if prefix_val else "(none)"
     max_file_val, max_file_env = _val("CODE_SIM_MAX_FILE_BYTES", "250000")
 
     # Check if org/db are from env
-    _, org_from_env = _val("CODE_SIM_ORG_ID", "local")
-    _, db_from_env = _val("CODE_SIM_DB_PATH", str(Path.home() / ".code-sim" / "chroma"))
+    _, org_from_env = _val("CODE_SIM_ORG_ID", "my-org")
+    _, db_from_env = _val(
+        "CODE_SIM_DB_PATH",
+        "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+    )
     _, metric_from_env = _val("CODE_SIM_METRIC", "cosine")
 
     _W = 90

@@ -100,7 +100,7 @@ The package is split by responsibility rather than by command. Every CLI entry p
 
 ### Data layout
 
-All persistent state lives under `CODE_SIM_DB_PATH` (default `~/.code-sim/chroma`) and consists of two ChromaDB collections (`project_code_private` and `project_code_public`) plus two `_embedding_config_*.json` files that record the model, chunking mode, and character budget active at index time. Query-time embeddings are produced with the same parameters, so a model or pipeline change surfaces as a warning rather than as silent retrieval failure.
+All persistent state lives under `CODE_SIM_DB_PATH` (default `code_similarity_tool/.code-sim/shared-db`) and consists of two ChromaDB collections (`project_code_private` and `project_code_public`) plus two `_embedding_config_*.json` files that record the model, chunking mode, and character budget active at index time. Query-time embeddings are produced with the same parameters, so a model or pipeline change surfaces as a warning rather than as silent retrieval failure.
 
 Private data is partitioned by `org_id` and `repo_id`; public data is partitioned by `public_source_id` derived from `url + commit`. Multiple repositories on the same host can share a private query scope by exporting the same `CODE_SIM_ORG_ID` and `CODE_SIM_DB_PATH`.
 
@@ -110,8 +110,9 @@ Every configurable parameter has an environment variable with a sensible default
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CODE_SIM_ORG_ID` | `local` | Scopes the private index across repositories |
-| `CODE_SIM_DB_PATH` | `~/.code-sim/chroma` | On-disk location of the ChromaDB store |
+| `CODE_SIM_ORG_ID` | `my-org` | Scopes the private index across repositories |
+| `CODE_SIM_DB_PATH` | `code_similarity_tool/.code-sim/shared-db` | On-disk location of the ChromaDB store |
+| `VLLM_INPUT_PREFIX` | `\n` | Prepended to every embedding input for consistency with model training |
 | `CODE_SIM_MAX_FILE_BYTES` | `250000` | File-size ceiling for indexing and queries |
 | `VLLM_BASE_URL` | `http://127.0.0.1:8000` | Embedding server endpoint |
 | `VLLM_MODEL` | `Octen/Octen-Embedding-8B` | Embedding model identifier |

@@ -71,10 +71,13 @@ def _default_repo_id(repo_root: Path) -> str:
 def load_runtime_context(start: Optional[Path] = None) -> RuntimeContext:
     repo_root = find_repo_root(start)
 
-    org_id = os.getenv("CODE_SIM_ORG_ID", "local").strip() or "local"
+    org_id = os.getenv("CODE_SIM_ORG_ID", "my-org").strip() or "my-org"
     repo_id = os.getenv("CODE_SIM_REPO_ID", "").strip() or _default_repo_id(repo_root)
     db_path = Path(
-        os.getenv("CODE_SIM_DB_PATH", str(Path.home() / ".code-sim" / "chroma"))
+        os.getenv(
+            "CODE_SIM_DB_PATH",
+            "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+        )
     ).expanduser().resolve()
 
     base_collection = os.getenv("CODE_SIM_COLLECTION", "project_code").strip() or "project_code"

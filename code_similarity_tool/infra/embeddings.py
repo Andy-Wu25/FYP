@@ -74,7 +74,7 @@ class EmbeddingClient:
         }
         self.batch_size = max(1, int(os.getenv("VLLM_BATCH_SIZE", "64")))
         self.chunk_overlap = max(0, int(os.getenv("VLLM_CHUNK_OVERLAP", "512")))
-        self.input_prefix = os.getenv("VLLM_INPUT_PREFIX", "")
+        self.input_prefix = os.getenv("VLLM_INPUT_PREFIX", "\n")
         self.truncate_tokens = max(0, truncate_tokens if truncate_tokens is not None else int(os.getenv("VLLM_TRUNCATE_TOKENS", "0")))
 
         log.info(
