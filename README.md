@@ -54,11 +54,10 @@ The runtime dependency set is intentionally small:
 ```bash
 pip install -e .              # core CLI
 pip install -e '.[bot]'       # + FastAPI / uvicorn for the PR bot
-pip install -e '.[charts]'    # + matplotlib for evaluation chart generation
 pip install -e '.[dev]'       # + pytest
 ```
 
-Twenty-five shell entry points are registered after install. Run `code-sim-config` to print the resolved configuration (database path, organisation, model, limits) annotated with the source of every value — this is the fastest way to confirm the install succeeded.
+Twenty-four shell entry points are registered after install. Run `code-sim-config` to print the resolved configuration (database path, organisation, model, limits) annotated with the source of every value — this is the fastest way to confirm the install succeeded.
 
 ## Commands
 
@@ -80,7 +79,7 @@ Twenty-five shell entry points are registered after install. Run `code-sim-confi
 | **Bot** | `code-sim-bot-serve` | Run the FastAPI webhook server for PR review comments |
 | **Evaluation** | `code-sim-batch-eval` | Run the full evaluation matrix across snapshots |
 | | `code-sim-batch-index` | Batch-index a list of repositories into the public collection |
-| | `code-sim-eval`, `code-sim-eval-private`, `code-sim-eval-public`, `code-sim-eval-charts` | Evaluation helpers |
+| | `code-sim-eval`, `code-sim-eval-private`, `code-sim-eval-public` | Evaluation helpers |
 
 All check commands accept `--scope staged|files|repo`, `--top-k N`, `--max-distance X`, `--min-lines N`, `--no-color`, `--no-interactive`, and `--json FILE`.
 
