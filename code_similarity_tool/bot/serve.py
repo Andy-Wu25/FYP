@@ -50,6 +50,10 @@ def main() -> None:
         help="Max hits to show per element (default: GITHUB_BOT_TOP_K or 3)",
     )
     analysis.add_argument(
+        "--min-lines", type=int, default=None,
+        help="Hide matched segments shorter than this many lines (default: GITHUB_BOT_MIN_LINES or 0)",
+    )
+    analysis.add_argument(
         "--check-public", action="store_true", default=None, dest="check_public",
         help="Query public index (default: true)",
     )
@@ -111,14 +115,15 @@ def main() -> None:
             check_public=args.check_public,
             check_private=args.check_private,
             comment_on_zero_hits=args.comment_on_zero,
+            min_lines=args.min_lines,
             allowed_orgs=args.allowed_orgs,
             max_files_per_pr=args.max_files,
             max_elements_per_pr=args.max_elements,
         )
         log.info(
-            "Bot config: max_distance=%.3f top_k=%d check_public=%s check_private=%s "
+            "Bot config: max_distance=%.3f top_k=%d min_lines=%d check_public=%s check_private=%s "
             "comment_zero=%s max_files=%d max_elements=%d",
-            cfg.max_distance, cfg.top_k, cfg.check_public, cfg.check_private,
+            cfg.max_distance, cfg.top_k, cfg.min_lines, cfg.check_public, cfg.check_private,
             cfg.comment_on_zero_hits, cfg.max_files_per_pr, cfg.max_elements_per_pr,
         )
         if cfg.allowed_orgs:

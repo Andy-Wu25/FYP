@@ -12,13 +12,14 @@ def main() -> None:
         prog="code-sim-update",
         description="Re-index the current repository (alias for code-sim-index).",
     )
+    parser.add_argument("--store-code", action="store_true", help="Store source code text in the vector database.")
     add_embedding_args(parser)
     args = parser.parse_args()
 
     sync_current_repo(
         action_name="update",
-        max_chars=args.max_chars,
-        long_text_mode=args.long_text_mode,
+        truncate_tokens=args.truncate,
+        store_code=args.store_code,
     )
 
 

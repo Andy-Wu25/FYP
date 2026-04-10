@@ -24,6 +24,7 @@ from .check_utils import (
     query_elements_from_args,
     validate_scope_args,
 )
+from .interactive import ResultEntry, launch_interactive_viewer
 from ..infra.clients import CodeVectorStore
 from ..infra.embeddings import EmbeddingClient, load_embedding_config
 from ..infra.public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
@@ -152,6 +153,12 @@ def main() -> None:
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
     )
     parser.add_argument(
+        "--min-lines",
+        type=int,
+        default=0,
+        help="Hide matched segments shorter than this many lines (default: 0, no filter).",
+    )
+    parser.add_argument(
         "--license",
         dest="licenses",
         action="append",
@@ -160,6 +167,7 @@ def main() -> None:
     )
     parser.add_argument("--json", metavar="FILE", default=None, help="Write results as JSON to FILE.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour output.")
+    parser.add_argument("--no-interactive", action="store_true", help="Skip interactive result browser.")
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
@@ -167,6 +175,7 @@ def main() -> None:
         disable_color()
 
     top_k = max(1, args.top_k)
+    min_lines = max(0, args.min_lines)
     license_filters = _normalize_license_filters(args.licenses)
     include_public_hit = _public_hit_filter_for_licenses(license_filters)
 
@@ -187,10 +196,9 @@ def main() -> None:
 
     # Load index-time embedding config to match query preparation
     index_cfg = load_embedding_config(ctx.db_path, "public")
-    resolved_max_chars = index_cfg.get("max_chars") if index_cfg else None
-    resolved_long_text_mode = index_cfg.get("long_text_mode") if index_cfg else None
+    resolved_truncate = index_cfg.get("truncate_tokens") if index_cfg else None
 
-    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=resolved_truncate)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(
@@ -202,6 +210,7 @@ def main() -> None:
     pool_size = max(top_k * 4, 20)
     total_hits = 0
     query_results = []
+    all_entries: List[ResultEntry] = []
 
     print(fmt_header_box("code-sim-check-public", args.scope, ctx.org_id, len(query_elements)))
 
@@ -216,6 +225,7 @@ def main() -> None:
             query_rel=rel_path,
             query_hash=element["hash"],
             include_hit=include_public_hit,
+            min_lines=min_lines,
         )
 
         print(fmt_check_sub_header("Public", len(hits)))
@@ -223,13 +233,17 @@ def main() -> None:
             print(f"  {_DIM}No matches in public index.{_RESET}")
         else:
             total_hits += len(hits)
-            for idx, (distance, meta) in enumerate(hits, start=1):
+            for idx, (distance, meta, doc) in enumerate(hits, start=1):
                 permalink, file_commit_url, commit_url, license_display = _resolve_urls(meta)
                 for row in fmt_public_hit(idx, distance, meta, permalink, file_commit_url, commit_url, license_display):
                     print(row)
+                all_entries.append(ResultEntry(
+                    query_name=element["name"], query_file=rel_path,
+                    rank=idx, distance=distance, meta=meta, code=doc, hit_type="public",
+                ))
 
         hit_records: List[Dict] = []
-        for i, (d, m) in enumerate(hits, start=1):
+        for i, (d, m, _doc) in enumerate(hits, start=1):
             permalink, file_commit_url, commit_url, license_display = _resolve_urls(m)
             hit: Dict = {
                 "rank": i,
@@ -263,6 +277,9 @@ def main() -> None:
         f"Public  {total_hits} match{'es' if total_hits != 1 else ''}",
     ]))
 
+    if not args.no_interactive:
+        launch_interactive_viewer(all_entries)
+
     if license_filters and total_hits == 0:
         unknown_filters = [lic for lic in license_filters if lic not in KNOWN_LICENSE_KEYWORDS]
         for bad_filter in unknown_filters:
@@ -277,6 +294,7 @@ def main() -> None:
             "scope": args.scope,
             "top_k": top_k,
             "max_distance": args.max_distance,
+            "min_lines": min_lines,
             "license_filters": license_filters,
             "queries": query_results,
             "summary": {

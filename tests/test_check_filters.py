@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from code_similarity_tool.check_utils import extract_hits
+from code_similarity_tool.checking.check_utils import extract_hits
 
 
 def _include_private(meta, query_rel: str, query_hash: str) -> bool:
@@ -50,7 +50,9 @@ class ExtractHitsTest(unittest.TestCase):
         )
 
         self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0][1]["repo_id"], "repo-2")
+        dist, meta, doc = hits[0]
+        self.assertEqual(meta["repo_id"], "repo-2")
+        self.assertEqual(doc, "")  # no documents in results
 
     def test_respects_max_distance(self) -> None:
         results = {
@@ -73,6 +75,26 @@ class ExtractHitsTest(unittest.TestCase):
 
         self.assertEqual(len(hits), 1)
         self.assertAlmostEqual(hits[0][0], 0.1)
+
+    def test_returns_document_text_when_present(self) -> None:
+        results = {
+            "ids": [["a"]],
+            "distances": [[0.05]],
+            "metadatas": [[{"repo_id": "r1", "file_path": "f.py", "content_hash": "h"}]],
+            "documents": [["def foo(): pass"]],
+        }
+
+        hits = extract_hits(
+            results,
+            top_k=5,
+            max_distance=None,
+            query_rel="q.py",
+            query_hash="q",
+            include_hit=lambda *_: True,
+        )
+
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0][2], "def foo(): pass")
 
 
 if __name__ == "__main__":

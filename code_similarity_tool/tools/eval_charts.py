@@ -81,6 +81,19 @@ def chart_01_top1_distance_trend(
     x = range(len(labels))
     ax.plot(x, means, "o-", label="Mean", linewidth=2, markersize=7)
     ax.plot(x, medians, "s--", label="Median", linewidth=2, markersize=7)
+    # Add 95% CI shaded band if available
+    ci_lo = []
+    ci_hi = []
+    has_ci = True
+    for d in ds:
+        ci = d.get("retrieval_quality", {}).get("confidence_intervals", {}).get("top1_distance_mean")
+        if ci is None:
+            has_ci = False
+            break
+        ci_lo.append(ci["lower"])
+        ci_hi.append(ci["upper"])
+    if has_ci:
+        ax.fill_between(list(x), ci_lo, ci_hi, alpha=0.15, color="tab:blue", label="95% CI")
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels)
     ax.set_ylabel("Top-1 Distance")
@@ -313,6 +326,7 @@ def chart_08_summary_table(
         "Mean Top-1 Dist",
         "Median Top-1 Dist",
         "MRR",
+        "MAP",
         "P@1",
         "P@5",
         "nDCG@5",
@@ -336,6 +350,7 @@ def chart_08_summary_table(
             f"{t1.get('mean', 0):.4f}" if t1.get("mean") is not None else "\u2014",
             f"{t1.get('median', 0):.4f}" if t1.get("median") is not None else "\u2014",
             f"{d.get('retrieval_quality', {}).get('mrr', 0):.4f}",
+            f"{d.get('retrieval_quality', {}).get('map', 0):.4f}",
             f"{pak.get('p_at_1', 0):.4f}",
             f"{pak.get('p_at_5', 0):.4f}",
             f"{ndcg.get('ndcg_at_5', 0):.4f}",
@@ -379,6 +394,65 @@ def chart_08_summary_table(
     return fig
 
 
+def chart_09_ir_metrics_trend(
+    datasets: List[Dict[str, Any]],
+) -> Optional[Any]:
+    """Line chart: IR metrics (MAP, MRR, P@1, P@5) vs corpus size."""
+    ds = _sorted_by_repos(datasets)
+    labels = [_label(d) for d in ds]
+
+    metrics_to_plot = {
+        "MRR": lambda d: d.get("retrieval_quality", {}).get("mrr"),
+        "MAP": lambda d: d.get("retrieval_quality", {}).get("map"),
+        "P@1": lambda d: d.get("retrieval_quality", {}).get("precision_at_k", {}).get("p_at_1"),
+        "P@5": lambda d: d.get("retrieval_quality", {}).get("precision_at_k", {}).get("p_at_5"),
+    }
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    x = range(len(labels))
+    has_any = False
+
+    markers = ["o", "s", "^", "D"]
+    styles = ["-", "--", "-.", ":"]
+    for i, (name, extractor) in enumerate(metrics_to_plot.items()):
+        vals = [extractor(d) for d in ds]
+        if any(v is None for v in vals):
+            continue
+        has_any = True
+        ax.plot(x, vals, f"{markers[i]}{styles[i]}", label=name, linewidth=2, markersize=7)
+
+        # Add CI band if available
+        ci_key = name.lower().replace("@", "_at_")
+        ci_lo = []
+        ci_hi = []
+        ci_available = True
+        for d in ds:
+            ci = d.get("retrieval_quality", {}).get("confidence_intervals", {}).get(ci_key)
+            if ci is None:
+                ci_available = False
+                break
+            ci_lo.append(ci["lower"])
+            ci_hi.append(ci["upper"])
+        if ci_available:
+            color = ax.get_lines()[-1].get_color()
+            ax.fill_between(list(x), ci_lo, ci_hi, alpha=0.1, color=color)
+
+    if not has_any:
+        plt.close(fig)
+        return None
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Score")
+    ax.set_xlabel("Corpus Size")
+    ax.set_title("IR Metrics vs Corpus Size")
+    ax.legend()
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
 # ── Chart registry ────────────────────────────────────────────────────────────
 
 CHARTS = [
@@ -390,6 +464,7 @@ CHARTS = [
     ("06_index_size", chart_06_index_size),
     ("07_per_kind_metrics", chart_07_per_kind_metrics),
     ("08_summary_table", chart_08_summary_table),
+    ("09_ir_metrics_trend", chart_09_ir_metrics_trend),
 ]
 
 

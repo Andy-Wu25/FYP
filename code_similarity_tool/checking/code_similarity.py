@@ -21,6 +21,7 @@ from .check_utils import (
     query_elements_from_args,
     validate_scope_args,
 )
+from .interactive import ResultEntry, launch_interactive_viewer
 from ..infra.clients import CodeVectorStore
 from ..infra.embeddings import EmbeddingClient, load_embedding_config
 from ..infra.public_links import build_github_commit_url, build_public_commit_permalink, build_public_match_permalink
@@ -72,8 +73,15 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
         default=None,
         help="Maximum allowed distance (inclusive). Lower values are more similar.",
     )
+    parser.add_argument(
+        "--min-lines",
+        type=int,
+        default=0,
+        help="Hide matched segments shorter than this many lines (default: 0, no filter).",
+    )
     parser.add_argument("--json", metavar="FILE", default=None, help="Write results as JSON to FILE.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour output.")
+    parser.add_argument("--no-interactive", action="store_true", help="Skip interactive result browser.")
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
@@ -81,6 +89,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
         disable_color()
 
     top_k = max(1, args.top_k)
+    min_lines = max(0, args.min_lines)
     ctx, rel_paths, query_elements = query_elements_from_args(args.paths, args.scope)
 
     if not rel_paths:
@@ -99,14 +108,11 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
     index_cfg_pub = load_embedding_config(ctx.db_path, "public") if check_public else None
     configs = [c for c in [index_cfg_priv, index_cfg_pub] if c is not None]
 
-    resolved_max_chars = None
-    resolved_long_text_mode = None
+    resolved_truncate = None
     if len(configs) == 1:
-        resolved_max_chars = configs[0].get("max_chars")
-        resolved_long_text_mode = configs[0].get("long_text_mode")
+        resolved_truncate = configs[0].get("truncate_tokens")
     elif len(configs) == 2 and configs[0] == configs[1]:
-        resolved_max_chars = configs[0].get("max_chars")
-        resolved_long_text_mode = configs[0].get("long_text_mode")
+        resolved_truncate = configs[0].get("truncate_tokens")
     elif len(configs) == 2:
         log.warning(
             "Private and public indexes have different embedding configs: "
@@ -114,7 +120,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
             index_cfg_priv, index_cfg_pub,
         )
 
-    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=resolved_truncate)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(
@@ -129,6 +135,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
     total_private_hits = 0
     total_public_hits = 0
     query_results = []
+    all_entries: List[ResultEntry] = []
 
     print(fmt_header_box(prog, args.scope, ctx.org_id, len(query_elements)))
 
@@ -154,6 +161,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
                 query_rel=rel_path,
                 query_hash=element["hash"],
                 include_hit=include_private,
+                min_lines=min_lines,
             )
             print(fmt_check_sub_header("Private", len(private_hits)))
             if not private_hits:
@@ -161,8 +169,12 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
                 print(f"  {_DIM}No matches in private org index.{_RESET}")
             else:
                 total_private_hits += len(private_hits)
-                for idx, (distance, meta) in enumerate(private_hits, start=1):
+                for idx, (distance, meta, doc) in enumerate(private_hits, start=1):
                     print(fmt_private_hit(idx, distance, meta))
+                    all_entries.append(ResultEntry(
+                        query_name=element["name"], query_file=rel_path,
+                        rank=idx, distance=distance, meta=meta, code=doc, hit_type="private",
+                    ))
 
             query_record["private_hits"] = [
                 {
@@ -174,7 +186,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
                     "start_line": m.get("start_line"),
                     "end_line": m.get("end_line"),
                 }
-                for i, (d, m) in enumerate(private_hits, start=1)
+                for i, (d, m, _doc) in enumerate(private_hits, start=1)
             ]
 
         # ── Public ───────────────────────────────────────────────────────────
@@ -187,6 +199,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
                 query_rel=rel_path,
                 query_hash=element["hash"],
                 include_hit=_include_all,
+                min_lines=min_lines,
             )
             print(fmt_check_sub_header("Public", len(public_hits)))
             if not public_hits:
@@ -194,13 +207,17 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
                 print(f"  {_DIM}No matches in public index.{_RESET}")
             else:
                 total_public_hits += len(public_hits)
-                for idx, (distance, meta) in enumerate(public_hits, start=1):
+                for idx, (distance, meta, doc) in enumerate(public_hits, start=1):
                     permalink, file_commit_url, commit_url, license_display = _resolve_public_hit_urls(meta)
                     for row in fmt_public_hit(idx, distance, meta, permalink, file_commit_url, commit_url, license_display):
                         print(row)
+                    all_entries.append(ResultEntry(
+                        query_name=element["name"], query_file=rel_path,
+                        rank=idx, distance=distance, meta=meta, code=doc, hit_type="public",
+                    ))
 
             public_hit_records: List[Dict] = []
-            for i, (d, m) in enumerate(public_hits if check_public else [], start=1):
+            for i, (d, m, _doc) in enumerate(public_hits if check_public else [], start=1):
                 permalink, file_commit_url, commit_url, license_display = _resolve_public_hit_urls(m)
                 hit: Dict = {
                     "rank": i,
@@ -232,6 +249,9 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
         footer_parts.append(f"Public  {total_public_hits} match{'es' if total_public_hits != 1 else ''}")
     print(fmt_footer(footer_parts))
 
+    if not args.no_interactive:
+        launch_interactive_viewer(all_entries)
+
     if args.json:
         data: Dict = {
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -239,6 +259,7 @@ def _run_check(prog: str, description: str, check_private: bool, check_public: b
             "scope": args.scope,
             "top_k": top_k,
             "max_distance": args.max_distance,
+            "min_lines": min_lines,
             "org_id": ctx.org_id,
             "queries": query_results,
             "summary": {"total_elements_checked": len(query_elements)},

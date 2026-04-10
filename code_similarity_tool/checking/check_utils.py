@@ -135,7 +135,7 @@ from ..core.runtime import (
 from ..core.source_filtering import is_noise_source_path
 
 HitFilter = Callable[[Dict, str, str], bool]
-QUERY_SCOPES = ("staged", "files", "repo")
+QUERY_SCOPES = ("staged", "files", "directory", "repo")
 
 
 def configure_logging() -> logging.Logger:
@@ -156,7 +156,9 @@ def resolve_optional_paths(raw_paths: List[str], repo_root: Path) -> List[str]:
         try:
             rels.append(str(candidate.relative_to(repo_root)))
         except ValueError:
-            continue
+            raise SystemExit(
+                f"Error: '{raw}' is outside the current repository ({repo_root})."
+            )
     return rels
 
 
@@ -167,6 +169,7 @@ def add_scope_argument(parser: argparse.ArgumentParser) -> None:
         default="staged",
         help=(
             "Query scope: staged (default, staged hunks only), files (whole provided files), "
+            "directory (current working directory or provided directory path), "
             "repo (whole repository)."
         ),
     )
@@ -175,6 +178,8 @@ def add_scope_argument(parser: argparse.ArgumentParser) -> None:
 def validate_scope_args(parser: argparse.ArgumentParser, args) -> None:
     if args.scope == "files" and not args.paths:
         parser.error("--scope files requires at least one path.")
+    if args.scope == "directory" and args.paths and len(args.paths) > 1:
+        parser.error("--scope directory accepts at most one directory path.")
     if args.scope == "repo" and args.paths:
         parser.error("--scope repo does not accept explicit paths.")
 
@@ -266,6 +271,15 @@ def _element_overlaps_any_changed_range(
     return False
 
 
+def _hit_line_count(meta: Dict) -> int | None:
+    """Return the line count of a hit from its metadata, or None if unknown."""
+    start = meta.get("start_line")
+    end = meta.get("end_line")
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        return int(end) - int(start) + 1
+    return None
+
+
 def extract_hits(
     results: Dict,
     *,
@@ -274,13 +288,19 @@ def extract_hits(
     query_rel: str,
     query_hash: str,
     include_hit: HitFilter,
-) -> List[Tuple[float, Dict]]:
+    min_lines: int = 0,
+) -> List[Tuple[float, Dict, str]]:
+    """Return list of (distance, metadata, document_text) tuples.
+
+    *document_text* is the stored source code when available, empty string otherwise.
+    """
     ids = (results.get("ids") or [[]])[0]
     dists = (results.get("distances") or [[]])[0]
     metas = (results.get("metadatas") or [[]])[0]
+    docs = (results.get("documents") or [[]])[0]
 
-    hits: List[Tuple[float, Dict]] = []
-    for _, dist, meta in zip(ids, dists, metas):
+    hits: List[Tuple[float, Dict, str]] = []
+    for idx, (_, dist, meta) in enumerate(zip(ids, dists, metas)):
         if not isinstance(meta, dict):
             continue
 
@@ -293,7 +313,13 @@ def extract_hits(
         if not isinstance(dist, (int, float)):
             continue
 
-        hits.append((float(dist), meta))
+        if min_lines > 0:
+            lc = _hit_line_count(meta)
+            if lc is not None and lc < min_lines:
+                continue
+
+        doc = docs[idx] if idx < len(docs) and docs[idx] else ""
+        hits.append((float(dist), meta, doc))
         if len(hits) >= top_k:
             break
 
@@ -316,6 +342,30 @@ def query_elements_from_args(paths: List[str], scope: str) -> Tuple[RuntimeConte
 
     if scope == "files":
         rel_paths = sorted(set(resolve_optional_paths(paths, ctx.repo_root)))
+        query_elements = collect_full_file_query_elements(ctx.repo_root, rel_paths)
+        return ctx, rel_paths, query_elements
+
+    if scope == "directory":
+        log = logging.getLogger(__name__)
+        if paths:
+            target = Path(paths[0])
+            if not target.is_absolute():
+                target = (Path.cwd() / target).resolve()
+            else:
+                target = target.resolve()
+        else:
+            target = Path.cwd().resolve()
+        if not target.is_dir():
+            raise ValueError(f"Not a directory: {target}")
+        if not target.is_relative_to(ctx.repo_root):
+            raise SystemExit(
+                f"Error: '{target}' is outside the current repository ({ctx.repo_root})."
+            )
+        matcher = load_ignore_file(ctx.repo_root)
+        rel_paths = [
+            str(path.relative_to(ctx.repo_root))
+            for path in iter_repo_source_files(target, matcher)
+        ]
         query_elements = collect_full_file_query_elements(ctx.repo_root, rel_paths)
         return ctx, rel_paths, query_elements
 

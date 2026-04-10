@@ -24,6 +24,9 @@ class BotConfig:
     check_private: bool       # query private org index
     comment_on_zero_hits: bool  # post comment even when nothing found
 
+    # Match filtering
+    min_lines: int            # hide matched segments shorter than this (0 = no filter)
+
     # Scope guards
     allowed_orgs: frozenset   # GitHub owner names; empty = allow all
     max_files_per_pr: int     # skip PRs with more changed files than this
@@ -38,6 +41,7 @@ class BotConfig:
         check_public: Optional[bool] = None,
         check_private: Optional[bool] = None,
         comment_on_zero_hits: Optional[bool] = None,
+        min_lines: Optional[int] = None,
         allowed_orgs: Optional[str] = None,
         max_files_per_pr: Optional[int] = None,
         max_elements_per_pr: Optional[int] = None,
@@ -95,6 +99,10 @@ class BotConfig:
             comment_on_zero_hits if comment_on_zero_hits is not None
             else _bool_env("GITHUB_BOT_COMMENT_ZERO", True)
         )
+        resolved_min_lines = max(0, (
+            min_lines if min_lines is not None
+            else int(os.environ.get("GITHUB_BOT_MIN_LINES", "0"))
+        ))
 
         allowed_orgs_raw = (
             allowed_orgs if allowed_orgs is not None
@@ -123,6 +131,7 @@ class BotConfig:
             check_public=resolved_check_public,
             check_private=resolved_check_private,
             comment_on_zero_hits=resolved_comment_zero,
+            min_lines=resolved_min_lines,
             allowed_orgs=resolved_allowed_orgs,
             max_files_per_pr=resolved_max_files,
             max_elements_per_pr=resolved_max_elements,

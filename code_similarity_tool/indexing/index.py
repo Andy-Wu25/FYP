@@ -33,8 +33,8 @@ def _configure_logging() -> logging.Logger:
 def sync_current_repo(
     action_name: str = "index",
     *,
-    max_chars: int | None = None,
-    long_text_mode: str | None = None,
+    truncate_tokens: int | None = None,
+    store_code: bool = False,
 ) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
@@ -78,8 +78,15 @@ def sync_current_repo(
         log.info("[%s] no functions/methods found after ignore rules.", action_name)
         return 0
 
-    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
-    vectors = embedder.embed_documents([element["text"] for element in all_elements])
+    embedder = EmbeddingClient(truncate_tokens=truncate_tokens)
+    labels = [
+        f"#{i+1} file={rp} name={el.get('name', '?')} kind={el.get('kind', '?')}"
+        for i, (rp, el) in enumerate(zip(rel_paths_for_element, all_elements))
+    ]
+    vectors = embedder.embed_documents(
+        [element["text"] for element in all_elements],
+        labels=labels,
+    )
 
     by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
     by_file_vectors: Dict[str, List[List[float]]] = defaultdict(list)
@@ -99,6 +106,7 @@ def sync_current_repo(
                 "repo_name": ctx.repo_name,
                 "file_path": rel_path,
             },
+            store_code=store_code,
         )
         total += len(by_file_elements[rel_path])
 
@@ -116,8 +124,8 @@ def index_private_github_repo(
     url: str,
     ref: Optional[str] = None,
     *,
-    max_chars: int | None = None,
-    long_text_mode: str | None = None,
+    truncate_tokens: int | None = None,
+    store_code: bool = False,
 ) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
@@ -165,8 +173,15 @@ def index_private_github_repo(
         log.info("[index-private] no functions/methods found after ignore rules.")
         return 0
 
-    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
-    vectors = embedder.embed_documents([element["text"] for element in all_elements])
+    embedder = EmbeddingClient(truncate_tokens=truncate_tokens)
+    labels = [
+        f"#{i+1} file={rp} name={el.get('name', '?')} kind={el.get('kind', '?')}"
+        for i, (rp, el) in enumerate(zip(rel_paths_for_element, all_elements))
+    ]
+    vectors = embedder.embed_documents(
+        [element["text"] for element in all_elements],
+        labels=labels,
+    )
 
     by_file_elements: Dict[str, List[CodeElement]] = defaultdict(list)
     by_file_vectors: Dict[str, List[List[float]]] = defaultdict(list)
@@ -186,6 +201,7 @@ def index_private_github_repo(
                 "repo_name": repo_name,
                 "file_path": rel_path,
             },
+            store_code=store_code,
         )
         total += len(by_file_elements[rel_path])
 
@@ -210,6 +226,7 @@ def main() -> None:
         default=None,
         help=argparse.SUPPRESS,
     )
+    parser.add_argument("--store-code", action="store_true", help="Store source code text in the vector database.")
     add_embedding_args(parser)
     args = parser.parse_args()
 
@@ -233,8 +250,8 @@ def main() -> None:
 
     sync_current_repo(
         action_name="index",
-        max_chars=args.max_chars,
-        long_text_mode=args.long_text_mode,
+        truncate_tokens=args.truncate,
+        store_code=args.store_code,
     )
 
 
@@ -245,6 +262,7 @@ def main_private_url() -> None:
     )
     parser.add_argument("url", help="GitHub repository URL (https://github.com/<owner>/<repo>)")
     parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/sha). Defaults to HEAD.")
+    parser.add_argument("--store-code", action="store_true", help="Store source code text in the vector database.")
     add_embedding_args(parser)
     args = parser.parse_args()
 
@@ -252,8 +270,8 @@ def main_private_url() -> None:
         index_private_github_repo(
             args.url,
             ref=args.ref,
-            max_chars=args.max_chars,
-            long_text_mode=args.long_text_mode,
+            truncate_tokens=args.truncate,
+            store_code=args.store_code,
         )
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))

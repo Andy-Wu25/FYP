@@ -55,7 +55,8 @@ code-sim-eval            = "code_similarity_tool.tools.evaluate:main"
 code-sim-eval-private    = "code_similarity_tool.tools.evaluate:main_private"
 code-sim-eval-public     = "code_similarity_tool.tools.evaluate:main_public"
 code-sim-eval-charts     = "code_similarity_tool.tools.eval_charts:main"
-code-sim-batch-index     = "code_similarity_tool.tools.batch_index:main"
+code-sim-batch-eval      = "code_similarity_tool.tools.combined_eval:main"
+code-sim-batch-index     = "code_similarity_tool.tools.eval_batch_index:main"
 
 [tool.setuptools]
 packages = [

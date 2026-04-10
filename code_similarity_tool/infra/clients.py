@@ -112,6 +112,7 @@ class CodeVectorStore:
         embeddings: List[List[float]],
         *,
         base_metadata: Dict[str, Any],
+        store_code: bool = True,
     ) -> None:
         if not elements:
             return
@@ -125,17 +126,20 @@ class CodeVectorStore:
                 "start_line": el["start_line"],
                 "end_line": el["end_line"],
                 "content_hash": el["hash"],
+                "code_stored": "true" if store_code else "false",
             }
             for el in elements
         ]
-        documents = [el["text"] for el in elements]
 
-        collection.upsert(
+        upsert_kwargs: Dict[str, Any] = dict(
             ids=ids,
             embeddings=embeddings,
-            documents=documents,
             metadatas=metadatas,
         )
+        if store_code:
+            upsert_kwargs["documents"] = [el["text"] for el in elements]
+
+        collection.upsert(**upsert_kwargs)
 
     def upsert_private_code_elements(
         self,
@@ -143,12 +147,14 @@ class CodeVectorStore:
         embeddings: List[List[float]],
         *,
         base_metadata: Dict[str, Any],
+        store_code: bool = True,
     ) -> None:
         self._upsert_code_elements(
             self.private_collection,
             elements,
             embeddings,
             base_metadata=base_metadata,
+            store_code=store_code,
         )
 
     def upsert_public_code_elements(
@@ -157,12 +163,14 @@ class CodeVectorStore:
         embeddings: List[List[float]],
         *,
         base_metadata: Dict[str, Any],
+        store_code: bool = True,
     ) -> None:
         self._upsert_code_elements(
             self.public_collection,
             elements,
             embeddings,
             base_metadata=base_metadata,
+            store_code=store_code,
         )
 
     def query_private_by_embedding(self, embedding: List[float], *, org_id: str, n_results: int = 8) -> Dict[str, Any]:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import statistics
 import sys
 import time
@@ -147,6 +148,49 @@ def _compute_distance_cdf(distances: List[float], n_points: int = 21) -> List[Di
     return points
 
 
+def _mean_average_precision(per_query_distances: List[List[float]], threshold: float) -> float:
+    """Mean Average Precision — average of per-query Average Precision scores."""
+    if not per_query_distances:
+        return 0.0
+    aps: List[float] = []
+    for dists in per_query_distances:
+        if not dists:
+            aps.append(0.0)
+            continue
+        n_relevant = 0
+        precision_sum = 0.0
+        for rank, d in enumerate(dists, start=1):
+            if d <= threshold:
+                n_relevant += 1
+                precision_sum += n_relevant / rank
+        aps.append(precision_sum / n_relevant if n_relevant > 0 else 0.0)
+    return statistics.mean(aps)
+
+
+def _bootstrap_ci(
+    values: List[float],
+    n_bootstrap: int = 2000,
+    ci: float = 0.95,
+    stat_fn=None,
+) -> Dict[str, float]:
+    """Compute bootstrap confidence interval for a statistic."""
+    if stat_fn is None:
+        stat_fn = statistics.mean
+    if len(values) < 2:
+        v = stat_fn(values) if values else 0.0
+        return {"lower": round(v, 6), "upper": round(v, 6)}
+    rng = random.Random(42)  # reproducible
+    boot_stats = []
+    for _ in range(n_bootstrap):
+        sample = rng.choices(values, k=len(values))
+        boot_stats.append(stat_fn(sample))
+    boot_stats.sort()
+    alpha = (1 - ci) / 2
+    lo_idx = int(alpha * n_bootstrap)
+    hi_idx = min(int((1 - alpha) * n_bootstrap) - 1, len(boot_stats) - 1)
+    return {"lower": round(boot_stats[lo_idx], 6), "upper": round(boot_stats[hi_idx], 6)}
+
+
 def _breakdown_stats(values: List[float]) -> Dict[str, Any]:
     """Mean/median for a group of distances."""
     if not values:
@@ -160,10 +204,9 @@ def _breakdown_stats(values: List[float]) -> Dict[str, Any]:
 
 def run_evaluation(
     snapshot: str | None,
-    json_path: str,
+    json_path: str | None,
     *,
-    max_chars: int | None = None,
-    long_text_mode: str | None = None,
+    truncate_tokens: int | None = None,
     check_private: bool = False,
     check_public: bool = True,
     top_k: int = 5,
@@ -224,65 +267,71 @@ def run_evaluation(
     index_config_public = load_embedding_config(snap_dir, "public") if check_public else None
 
     # Resolve effective embedding config: CLI flag > index-time config > env/default
-    cli_override = max_chars is not None or long_text_mode is not None
-    resolved_max_chars = max_chars
-    resolved_long_text_mode = long_text_mode
-
-    if not cli_override:
+    resolved_truncate = truncate_tokens
+    if truncate_tokens is None:
         configs = [c for c in [index_config_private, index_config_public] if c is not None]
         if len(configs) == 1:
-            cfg = configs[0]
-            resolved_max_chars = cfg.get("max_chars")
-            resolved_long_text_mode = cfg.get("long_text_mode")
-            log.info("Using index-time embedding config: max_chars=%s long_text_mode=%s", resolved_max_chars, resolved_long_text_mode)
+            resolved_truncate = configs[0].get("truncate_tokens")
+            log.info("Using index-time embedding config: truncate_tokens=%s", resolved_truncate)
         elif len(configs) == 2:
             if configs[0] == configs[1]:
-                cfg = configs[0]
-                resolved_max_chars = cfg.get("max_chars")
-                resolved_long_text_mode = cfg.get("long_text_mode")
-                log.info("Private and public index configs match: max_chars=%s long_text_mode=%s", resolved_max_chars, resolved_long_text_mode)
+                resolved_truncate = configs[0].get("truncate_tokens")
+                log.info("Private and public index configs match: truncate_tokens=%s", resolved_truncate)
             else:
                 print(
                     "Error: private and public indexes were built with different embedding configs:\n"
                     f"  private: {index_config_private}\n"
                     f"  public:  {index_config_public}\n"
-                    "Use --max-chars to explicitly choose which config to query with,\n"
+                    "Use --truncate to explicitly choose which config to query with,\n"
                     "or run code-sim-eval-private / code-sim-eval-public separately.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
     else:
-        log.info("CLI embedding flags provided — overriding index-time config.")
+        log.info("CLI --truncate provided — overriding index-time config.")
 
-    # Collect index stats from active collections
+    # Quick emptiness check using collection.count() (avoids paging all metadata)
     index_size_bytes = _dir_size(snap_dir)
-    all_metas: List[Dict] = []
-    private_stats: Dict[str, Any] = {"total": 0, "repos": Counter(), "files": 0, "kinds": Counter(), "langs": Counter(), "licenses": Counter(), "repo_commits": {}}
-    public_stats: Dict[str, Any] = {"total": 0, "repos": Counter(), "files": 0, "kinds": Counter(), "langs": Counter(), "licenses": Counter(), "repo_commits": {}}
-
+    total_elements = 0
+    private_count = 0
+    public_count = 0
     if check_private:
-        log.info("Collecting private index statistics ...")
-        priv_metas = _get_all_metadatas(store.private_collection)
-        private_stats = _compute_stats(priv_metas)
-        all_metas.extend(priv_metas)
-
+        private_count = store.private_collection.count()
+        total_elements += private_count
     if check_public:
-        log.info("Collecting public index statistics ...")
-        pub_metas = _get_all_metadatas(store.public_collection)
-        public_stats = _compute_stats(pub_metas)
-        all_metas.extend(pub_metas)
+        public_count = store.public_collection.count()
+        total_elements += public_count
 
-    index_stats = _compute_stats(all_metas)
-
-    total_elements = index_stats["total"]
-    total_repos = len(index_stats["repos"])
-    total_files = index_stats["files"]
-
-    log.info("Index: %d elements, %d repos, %d files", total_elements, total_repos, total_files)
+    log.info("Index: %d elements", total_elements)
 
     if total_elements == 0:
         print(f"Error: {collection_label} index in snapshot '{snapshot_name}' is empty.", file=sys.stderr)
         sys.exit(1)
+
+    # Full stats (repos, files, licenses) only when writing JSON
+    _empty_stats: Dict[str, Any] = {"total": 0, "repos": Counter(), "files": 0, "kinds": Counter(), "langs": Counter(), "licenses": Counter(), "repo_commits": {}}
+    index_stats: Dict[str, Any] = dict(_empty_stats)
+    private_stats: Dict[str, Any] = dict(_empty_stats)
+    public_stats: Dict[str, Any] = dict(_empty_stats)
+    total_repos = 0
+    total_files = 0
+
+    if json_path:
+        all_metas: List[Dict] = []
+        if check_private:
+            log.info("Collecting private index statistics ...")
+            priv_metas = _get_all_metadatas(store.private_collection)
+            private_stats = _compute_stats(priv_metas)
+            all_metas.extend(priv_metas)
+        if check_public:
+            log.info("Collecting public index statistics ...")
+            pub_metas = _get_all_metadatas(store.public_collection)
+            public_stats = _compute_stats(pub_metas)
+            all_metas.extend(pub_metas)
+        index_stats = _compute_stats(all_metas)
+        total_repos = len(index_stats["repos"])
+        total_files = index_stats["files"]
+        log.info("Index: %d elements, %d repos, %d files", total_elements, total_repos, total_files)
 
     # Collect query elements from current repo
     log.info("Extracting code elements from current repo ...")
@@ -302,7 +351,7 @@ def run_evaluation(
     labels = [f"{rel}:{el['name']}" for rel, el in query_elements]
 
     t0_embed = time.monotonic()
-    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=resolved_truncate)
     vectors = embedder.embed_documents(texts, labels=labels)
     t_embed = time.monotonic() - t0_embed
 
@@ -329,7 +378,7 @@ def run_evaluation(
 
     for i, ((rel_path, element), vector) in enumerate(zip(query_elements, vectors)):
         t0_q = time.monotonic()
-        merged_hits: List[Tuple[float, Dict]] = []
+        merged_hits: List[Tuple[float, Dict, str]] = []
 
         if check_private:
             results = store.query_private_by_embedding(vector, org_id=ctx.org_id, n_results=pool_size)
@@ -368,9 +417,9 @@ def run_evaluation(
         queries_with_results.append(n_hits)
 
         # Collect per-query hit distances and unique repos
-        query_dists = [dist for dist, _ in hits]
+        query_dists = [dist for dist, _, _ in hits]
         per_query_hit_distances.append(query_dists)
-        query_repos = {meta.get("repo_name", "<unknown>") for _, meta in hits}
+        query_repos = {meta.get("repo_name", "<unknown>") for _, meta, _ in hits}
         per_query_unique_repos.append(len(query_repos))
 
         if hits:
@@ -381,7 +430,7 @@ def run_evaluation(
                 gap = hits[1][0] - hits[0][0]
                 all_top1_gaps.append(gap)
 
-            for dist, meta in hits:
+            for dist, meta, _doc in hits:
                 all_hit_distances.append(dist)
                 repo = meta.get("repo_name", "<unknown>")
                 all_result_repos.add(repo)
@@ -398,7 +447,7 @@ def run_evaluation(
 
         if include_queries:
             hit_records = []
-            for rank, (dist, meta) in enumerate(hits, start=1):
+            for rank, (dist, meta, _doc) in enumerate(hits, start=1):
                 hit_records.append({
                     "rank": rank,
                     "distance": round(dist, 6),
@@ -474,6 +523,53 @@ def run_evaluation(
     ndcg_3 = round(_ndcg_at_k(per_query_hit_distances, 3), 6)
     ndcg_5 = round(_ndcg_at_k(per_query_hit_distances, 5), 6)
 
+    map_val = round(_mean_average_precision(per_query_hit_distances, relevance_threshold), 6)
+
+    # Per-query metric values for confidence interval computation
+    per_query_rr: List[float] = []
+    per_query_ap: List[float] = []
+    per_query_p_at_1: List[float] = []
+    per_query_p_at_5: List[float] = []
+    for dists in per_query_hit_distances:
+        # Reciprocal rank
+        rr = 0.0
+        for rank, d in enumerate(dists, start=1):
+            if d <= relevance_threshold:
+                rr = 1.0 / rank
+                break
+        per_query_rr.append(rr)
+        # Average precision
+        n_rel = 0
+        prec_sum = 0.0
+        for rank, d in enumerate(dists, start=1):
+            if d <= relevance_threshold:
+                n_rel += 1
+                prec_sum += n_rel / rank
+        per_query_ap.append(prec_sum / n_rel if n_rel > 0 else 0.0)
+        # P@1
+        top1 = dists[:1]
+        per_query_p_at_1.append(
+            sum(1 for d in top1 if d <= relevance_threshold) / len(top1) if top1 else 0.0
+        )
+        # P@5
+        top5 = dists[:5]
+        per_query_p_at_5.append(
+            sum(1 for d in top5 if d <= relevance_threshold) / len(top5) if top5 else 0.0
+        )
+
+    # 95% bootstrap confidence intervals
+    confidence_intervals: Dict[str, Any] = {}
+    if all_top1_distances:
+        confidence_intervals["top1_distance_mean"] = _bootstrap_ci(all_top1_distances)
+    if per_query_rr:
+        confidence_intervals["mrr"] = _bootstrap_ci(per_query_rr)
+    if per_query_ap:
+        confidence_intervals["map"] = _bootstrap_ci(per_query_ap)
+    if per_query_p_at_1:
+        confidence_intervals["p_at_1"] = _bootstrap_ci(per_query_p_at_1)
+    if per_query_p_at_5:
+        confidence_intervals["p_at_5"] = _bootstrap_ci(per_query_p_at_5)
+
     # Per-kind breakdown
     by_kind: Dict[str, Dict[str, Any]] = {}
     for kind, dists in sorted(kind_distances.items()):
@@ -529,10 +625,11 @@ def run_evaluation(
     print()
     print(f"  {_C}Index ({collection_label}){_R}")
     print(f"    Elements   {_B}{total_elements:,}{_R}")
-    print(f"    Repos      {_B}{total_repos}{_R}")
-    print(f"    Files      {_B}{total_files:,}{_R}")
+    if total_repos:
+        print(f"    Repos      {_B}{total_repos}{_R}")
+        print(f"    Files      {_B}{total_files:,}{_R}")
     if check_private and check_public:
-        print(f"    Private    {_B}{private_stats['total']:,}{_R}     Public     {_B}{public_stats['total']:,}{_R}")
+        print(f"    Private    {_B}{private_count:,}{_R}     Public     {_B}{public_count:,}{_R}")
 
     # Distance stats
     print()
@@ -550,6 +647,13 @@ def run_evaluation(
     print(f"    MRR        {_B}{mrr_val:.4f}{_R}")
     print(f"    P@1        {_B}{p_at_1:.4f}{_R}        P@3        {_B}{p_at_3:.4f}{_R}        P@5        {_B}{p_at_5:.4f}{_R}")
     print(f"    nDCG@1     {_B}{ndcg_1:.4f}{_R}        nDCG@3     {_B}{ndcg_3:.4f}{_R}        nDCG@5     {_B}{ndcg_5:.4f}{_R}")
+    print(f"    MAP        {_B}{map_val:.4f}{_R}")
+
+    if confidence_intervals:
+        print()
+        print(f"  {_C}95% Confidence Intervals{_R}")
+        for metric_name, ci in confidence_intervals.items():
+            print(f"    {metric_name:<20} [{ci['lower']:.4f}, {ci['upper']:.4f}]")
 
     # Hit rates
     print()
@@ -570,6 +674,8 @@ def run_evaluation(
     print(f"    Queries    {_B}{n_queries}{_R}")
     print(f"    Embed      {_B}{embed_ms_per_element:.1f}{_R} ms/el")
     print(f"    Query      {_B}{latency_stats.get('mean_ms', 0):.1f}{_R} ms/el")
+    eps = 1000 / embed_ms_per_element if embed_ms_per_element > 0 else 0
+    print(f"    Throughput {_B}{eps:.1f}{_R} el/s (embed)")
     if check_private and check_public:
         print(f"    Priv hits  {_B}{total_private_hits}{_R}       Pub hits   {_B}{total_public_hits}{_R}")
 
@@ -613,9 +719,7 @@ def run_evaluation(
             "public": index_config_public,
         },
         "query_embedding_config": {
-            "max_chars": embedder.max_chars,
-            "long_text_mode": embedder.long_text_mode,
-            "chunk_overlap": embedder.chunk_overlap,
+            "truncate_tokens": embedder.truncate_tokens,
             "model": embedder.model,
         },
         "index": index_json,
@@ -637,6 +741,8 @@ def run_evaluation(
                 "ndcg_at_3": ndcg_3,
                 "ndcg_at_5": ndcg_5,
             },
+            "map": map_val,
+            "confidence_intervals": confidence_intervals,
         },
         "breakdowns": {
             "by_kind": by_kind,
@@ -644,6 +750,7 @@ def run_evaluation(
         },
         "scalability": {
             "embed_ms_per_element": round(embed_ms_per_element, 2),
+            "embed_elements_per_second": round(1000 / embed_ms_per_element, 2) if embed_ms_per_element > 0 else 0,
             "query_latency": latency_stats,
             "index_size_bytes": index_size_bytes,
         },
@@ -659,8 +766,9 @@ def run_evaluation(
     if include_queries:
         output["queries"] = per_query_data
 
-    Path(json_path).write_text(json.dumps(output, indent=2), encoding="utf-8")
-    print(f"JSON written -> {json_path}")
+    if json_path:
+        Path(json_path).write_text(json.dumps(output, indent=2), encoding="utf-8")
+        print(f"JSON written -> {json_path}")
 
 
 def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
@@ -670,7 +778,7 @@ def _build_parser(prog: str, description: str) -> argparse.ArgumentParser:
         help="Snapshot name or path to a snapshot directory. "
         "If omitted, evaluates against the current active database.",
     )
-    parser.add_argument("--json", required=True, metavar="FILE", help="Output JSON file path")
+    parser.add_argument("--json", default=None, metavar="FILE", help="Output JSON file path (enables full index statistics collection)")
     parser.add_argument("--top-k", type=int, default=5, help="Number of results per query (default: 5)")
     parser.add_argument("--no-queries", action="store_true", help="Omit per-query raw data from JSON output")
     parser.add_argument("--relevance-threshold", type=float, default=0.30, help="Distance threshold for Precision@k and MRR (default: 0.30)")
@@ -689,8 +797,7 @@ def main() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        max_chars=args.max_chars,
-        long_text_mode=args.long_text_mode,
+        truncate_tokens=args.truncate,
         check_private=True,
         check_public=True,
         top_k=max(1, args.top_k),
@@ -710,8 +817,7 @@ def main_private() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        max_chars=args.max_chars,
-        long_text_mode=args.long_text_mode,
+        truncate_tokens=args.truncate,
         check_private=True,
         check_public=False,
         top_k=max(1, args.top_k),
@@ -731,8 +837,7 @@ def main_public() -> None:
     run_evaluation(
         snapshot=args.snapshot,
         json_path=args.json,
-        max_chars=args.max_chars,
-        long_text_mode=args.long_text_mode,
+        truncate_tokens=args.truncate,
         check_private=False,
         check_public=True,
         top_k=max(1, args.top_k),

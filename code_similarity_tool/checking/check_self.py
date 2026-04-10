@@ -22,6 +22,7 @@ from .check_utils import (
     query_elements_from_args,
     validate_scope_args,
 )
+from .interactive import ResultEntry, launch_interactive_viewer
 from ..infra.clients import CodeVectorStore
 from ..infra.embeddings import EmbeddingClient, load_embedding_config
 
@@ -50,6 +51,7 @@ def main() -> None:
     )
     parser.add_argument("--json", metavar="FILE", default=None, help="Write results as JSON to FILE.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour output.")
+    parser.add_argument("--no-interactive", action="store_true", help="Skip interactive result browser.")
     args = parser.parse_args()
     validate_scope_args(parser, args)
 
@@ -72,10 +74,9 @@ def main() -> None:
 
     # Load index-time embedding config to match query preparation
     index_cfg = load_embedding_config(ctx.db_path, "private")
-    resolved_max_chars = index_cfg.get("max_chars") if index_cfg else None
-    resolved_long_text_mode = index_cfg.get("long_text_mode") if index_cfg else None
+    resolved_truncate = index_cfg.get("truncate_tokens") if index_cfg else None
 
-    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=resolved_truncate)
     vectors = embedder.embed_documents([element["text"] for _, element in query_elements])
 
     store = CodeVectorStore(
@@ -87,6 +88,7 @@ def main() -> None:
     pool_size = max(top_k * 4, 20)
     total_hits = 0
     query_results = []
+    all_entries: list[ResultEntry] = []
 
     print(fmt_header_box("code-sim-check-self", args.scope, ctx.org_id, len(query_elements)))
 
@@ -110,8 +112,12 @@ def main() -> None:
             print(f"  {_DIM}No matches in this repository.{_RESET}")
         else:
             total_hits += len(hits)
-            for idx, (distance, meta) in enumerate(hits, start=1):
+            for idx, (distance, meta, doc) in enumerate(hits, start=1):
                 print(fmt_private_hit(idx, distance, meta))
+                all_entries.append(ResultEntry(
+                    query_name=element["name"], query_file=rel_path,
+                    rank=idx, distance=distance, meta=meta, code=doc, hit_type="self",
+                ))
 
         query_record = {
             "name": element["name"],
@@ -128,7 +134,7 @@ def main() -> None:
                     "start_line": m.get("start_line"),
                     "end_line": m.get("end_line"),
                 }
-                for i, (d, m) in enumerate(hits, start=1)
+                for i, (d, m, _doc) in enumerate(hits, start=1)
             ],
         }
         query_results.append(query_record)
@@ -140,6 +146,9 @@ def main() -> None:
 
     if total_hits == 0:
         print(f"\n{_DIM}Hint: no indexed data found. Run code-sim-index first.\033[0m")
+
+    if not args.no_interactive:
+        launch_interactive_viewer(all_entries)
 
     if args.json:
         data = {

@@ -34,6 +34,7 @@ def format_report(
     check_private: bool = True,
     check_public: bool = True,
     embedding_config: Optional[Dict[str, Any]] = None,
+    min_lines: int = 0,
 ) -> Optional[str]:
     """Build the full PR comment body.
 
@@ -72,7 +73,7 @@ def format_report(
     run_cmd = f"`code-sim-check-public --scope files <paths>`"
     lines.append(f"*Run locally: {run_cmd}*")
     lines.append("")
-    lines.append(_format_config_block(max_distance, top_k, check_private, check_public, embedding_config))
+    lines.append(_format_config_block(max_distance, top_k, check_private, check_public, embedding_config, min_lines))
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -142,6 +143,7 @@ def format_zero_findings_report(
     check_private: bool = True,
     check_public: bool = True,
     embedding_config: Optional[Dict[str, Any]] = None,
+    min_lines: int = 0,
 ) -> str:
     """Compact comment for when nothing similar is found."""
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -152,7 +154,7 @@ def format_zero_findings_report(
         f"> ✅ No similarities found — {total_elements} element(s) checked "
         f"| threshold ≤ {max_distance} | *{now_utc}*",
         "",
-        _format_config_block(max_distance, top_k, check_private, check_public, embedding_config),
+        _format_config_block(max_distance, top_k, check_private, check_public, embedding_config, min_lines),
         "",
     ]
     if findings:
@@ -182,6 +184,7 @@ def _format_config_block(
     check_private: bool,
     check_public: bool,
     embedding_config: Optional[Dict[str, Any]],
+    min_lines: int = 0,
 ) -> str:
     """Collapsible block showing the active analysis configuration."""
     scope_parts = []
@@ -194,15 +197,13 @@ def _format_config_block(
     rows = [
         f"| Max distance | `{max_distance}` |",
         f"| Top-K | `{top_k}` |",
+        f"| Min lines | `{min_lines}` |" if min_lines > 0 else f"| Min lines | `0` (no filter) |",
         f"| Indexes | `{scope}` |",
     ]
     if embedding_config:
-        max_chars = embedding_config.get("max_chars", 0)
-        max_chars_display = f"`{max_chars}`" if max_chars else "`0` (full context)"
-        rows.append(f"| Embedding max chars | {max_chars_display} |")
-        if max_chars:
-            rows.append(f"| Long text mode | `{embedding_config.get('long_text_mode', 'chunk')}` |")
-            rows.append(f"| Chunk overlap | `{embedding_config.get('chunk_overlap', 512)}` |")
+        truncate = embedding_config.get("truncate_tokens", 0)
+        truncate_display = f"`{truncate}` tokens" if truncate else "off (auto-chunk on overflow)"
+        rows.append(f"| Truncate | {truncate_display} |")
         rows.append(f"| Model | `{embedding_config.get('model', '?')}` |")
 
     table = "\n".join(rows)
@@ -233,7 +234,7 @@ def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]
     if index_type == "public":
         lines.append("| # | Repo | File | Function | Distance | License | Link |")
         lines.append("|---|------|------|----------|----------|---------|------|")
-        for idx, (dist, meta) in enumerate(hits, start=1):
+        for idx, (dist, meta, *_rest) in enumerate(hits, start=1):
             func = meta.get("function_name", "<unknown>")
             repo_name = meta.get("repo_name", "<unknown>")
             file_path = meta.get("file_path", "<unknown>")
@@ -247,7 +248,7 @@ def _format_finding_block(finding: ElementFinding, index_type: str) -> List[str]
     else:
         lines.append("| # | Match | Distance | Repo | File |")
         lines.append("|---|-------|----------|------|------|")
-        for idx, (dist, meta) in enumerate(hits, start=1):
+        for idx, (dist, meta, *_rest) in enumerate(hits, start=1):
             func = meta.get("function_name", "<unknown>")
             repo_name = meta.get("repo_name", "<unknown>")
             file_path = meta.get("file_path", "<unknown>")
@@ -271,8 +272,11 @@ def _checked_elements_details(findings: List[ElementFinding]) -> str:
         else f"✅ All {total} elements had no matches"
     )
 
+    # When some elements had hits, only list those without matches;
+    # when none had hits, list all checked elements.
+    display = [f for f in findings if not f.has_hits] if hits_count else findings
     rows = ["| File | Element | Kind | Lines |", "|------|---------|------|-------|"]
-    for f in findings:
+    for f in display:
         el = f.element
         rows.append(
             f"| `{f.rel_path}` | `{el['name']}` | {el['kind']} "

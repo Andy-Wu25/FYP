@@ -251,9 +251,9 @@ def index_public_github_repo(
     url: str,
     ref: Optional[str] = None,
     *,
-    max_chars: int | None = None,
-    long_text_mode: str | None = None,
+    truncate_tokens: int | None = None,
     debug_element_index: Optional[int] = None,
+    store_code: bool = False,
 ) -> int:
     log = _configure_logging()
     ctx = load_runtime_context()
@@ -322,7 +322,7 @@ def index_public_github_repo(
         log.info("[public-index] no indexable functions/methods found.")
         return 0
 
-    embedder = EmbeddingClient(max_chars=max_chars, long_text_mode=long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=truncate_tokens)
     labels = [
         _public_element_label(i + 1, rel_path, element)
         for i, (rel_path, element) in enumerate(zip(rel_paths_for_element, all_elements))
@@ -361,6 +361,7 @@ def index_public_github_repo(
                 "license": license_id,
                 "license_spdx": license_id,
             },
+            store_code=store_code,
         )
         total += len(by_file_elements[rel_path])
 
@@ -390,6 +391,7 @@ def main() -> None:
             "without indexing. Useful for diagnosing embedding failures."
         ),
     )
+    parser.add_argument("--store-code", action="store_true", help="Store source code text in the vector database.")
     add_embedding_args(parser)
     args = parser.parse_args()
 
@@ -397,9 +399,9 @@ def main() -> None:
         index_public_github_repo(
             args.url,
             ref=args.ref,
-            max_chars=args.max_chars,
-            long_text_mode=args.long_text_mode,
+            truncate_tokens=args.truncate,
             debug_element_index=args.debug_element_index,
+            store_code=args.store_code,
         )
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))

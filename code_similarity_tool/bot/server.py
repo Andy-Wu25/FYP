@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from typing import Optional, Set
 
 log = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ async def _process_pr_event(
     pr_key = f"{owner}/{repo}#{pr_number}"
     in_flight.add(pr_key)
     comment_id: Optional[int] = None
+    t_start = time.monotonic()
 
     try:
         comment_id = await gh.find_bot_comment(owner, repo, pr_number)
@@ -137,6 +139,7 @@ async def _process_pr_event(
             owner, repo, pr_number, CHECKING_BODY, comment_id
         )
 
+        t_api = time.monotonic()
         pr_files = await gh.get_pr_files(owner, repo, pr_number)
 
         source_files = [f for f in pr_files if f.status != "removed"]
@@ -156,6 +159,9 @@ async def _process_pr_event(
                 file_contents[filename] = None
             else:
                 file_contents[filename] = result
+
+        api_ms = (time.monotonic() - t_api) * 1000
+        log.info("PR %s: GitHub API fetch took %.0f ms (%d files)", pr_key, api_ms, len(source_files))
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -182,6 +188,7 @@ async def _process_pr_event(
                     0, [], cfg.max_distance,
                     top_k=cfg.top_k, check_private=cfg.check_private,
                     check_public=cfg.check_public, embedding_config=embed_cfg,
+                    min_lines=cfg.min_lines,
                 )
                 await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
             else:
@@ -200,6 +207,7 @@ async def _process_pr_event(
                 check_private=cfg.check_private,
                 check_public=cfg.check_public,
                 embedding_config=embed_cfg,
+                min_lines=cfg.min_lines,
             )
             await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
         else:
@@ -208,17 +216,28 @@ async def _process_pr_event(
                     len(findings), findings, cfg.max_distance,
                     top_k=cfg.top_k, check_private=cfg.check_private,
                     check_public=cfg.check_public, embedding_config=embed_cfg,
+                    min_lines=cfg.min_lines,
                 )
                 await gh.upsert_pr_comment(owner, repo, pr_number, body, comment_id)
             else:
                 await gh.delete_comment(owner, repo, comment_id)
                 comment_id = None
 
+        total_ms = (time.monotonic() - t_start) * 1000
+        timings = result.timings
         log.info(
-            "Completed analysis for PR %s: %d element(s), %d with hits",
+            "Completed analysis for PR %s: %d element(s), %d with hits | "
+            "end-to-end=%.0fms github_api=%.0fms extract=%.0fms embed=%.0fms query=%.0fms | "
+            "elements_in_files=%d candidates=%d",
             pr_key,
             len(findings),
             sum(1 for f in findings if f.has_hits),
+            total_ms, api_ms,
+            timings.extract_ms if timings else 0,
+            timings.embed_ms if timings else 0,
+            timings.query_ms if timings else 0,
+            result.total_elements_in_files,
+            result.candidates_after_filter,
         )
 
     except Exception as exc:

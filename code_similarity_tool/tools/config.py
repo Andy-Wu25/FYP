@@ -59,9 +59,7 @@ def main() -> None:
         snap_dir = "?"
 
     # Embedding settings
-    max_chars_val, max_chars_env = _val("VLLM_MAX_CHARS", "0")
-    long_text_val, long_text_env = _val("VLLM_LONG_TEXT_MODE", "chunk")
-    overlap_val, overlap_env = _val("VLLM_CHUNK_OVERLAP", "512")
+    truncate_val, truncate_env = _val("VLLM_TRUNCATE_TOKENS", "0")
     model_val, model_env = _val("VLLM_MODEL", "Octen/Octen-Embedding-8B")
     base_url_val, base_url_env = _val("VLLM_BASE_URL", "http://127.0.0.1:8000")
     batch_val, batch_env = _val("VLLM_BATCH_SIZE", "64")
@@ -97,14 +95,8 @@ def main() -> None:
     print(f"  {_C}Embeddings{_R}")
     print(_row("Model", model_val, "VLLM_MODEL", model_env))
     print(_row("Base URL", base_url_val, "VLLM_BASE_URL", base_url_env))
-    max_chars_display = f"{max_chars_val} (no limit)" if max_chars_val == "0" else max_chars_val
-    print(_row("Max chars", max_chars_display, "VLLM_MAX_CHARS", max_chars_env))
-    if max_chars_val != "0":
-        print(_row("Long text mode", long_text_val, "VLLM_LONG_TEXT_MODE", long_text_env))
-        print(_row("Chunk overlap", overlap_val, "VLLM_CHUNK_OVERLAP", overlap_env))
-    else:
-        print(f"  {'Long text mode':<22} {_D}n/a (max_chars=0){_R}")
-        print(f"  {'Chunk overlap':<22} {_D}n/a (max_chars=0){_R}")
+    truncate_display = f"{truncate_val} tokens" if truncate_val != "0" else "off (auto-chunk on overflow)"
+    print(_row("Truncate", truncate_display, "VLLM_TRUNCATE_TOKENS", truncate_env))
     print(_row("Batch size", batch_val, "VLLM_BATCH_SIZE", batch_env))
     print(_row("Timeout", f"{timeout_val}s", "VLLM_TIMEOUT_S", timeout_env))
     print(_row("API key", api_key_display, "VLLM_API_KEY", api_key_env))

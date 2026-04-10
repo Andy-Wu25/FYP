@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,11 +44,24 @@ class ElementFinding:
 
 
 @dataclass
+class AnalysisTimings:
+    """Wall-clock durations for each stage of PR analysis (milliseconds)."""
+
+    extract_ms: float = 0.0
+    embed_ms: float = 0.0
+    query_ms: float = 0.0
+    total_ms: float = 0.0
+
+
+@dataclass
 class AnalysisResult:
     """Bundle of findings + the resolved embedding config for the PR comment."""
 
     findings: List[ElementFinding]
     embedding_config: Optional[Dict[str, Any]] = None
+    timings: Optional[AnalysisTimings] = None
+    total_elements_in_files: int = 0
+    candidates_after_filter: int = 0
 
 
 def _max_file_bytes() -> int:
@@ -116,13 +130,16 @@ def analyze_pr(
     -------
     AnalysisResult containing findings and the resolved embedding config.
     """
+    t_total = time.monotonic()
     ctx = load_runtime_context()
     max_bytes = _max_file_bytes()
 
     # ------------------------------------------------------------------ #
     # Step 1 – collect (rel_path, element) pairs for changed code only
     # ------------------------------------------------------------------ #
+    t_extract = time.monotonic()
     candidates: List[Tuple[str, CodeElement]] = []
+    total_elements_in_files = 0
 
     for pr_file in pr_files:
         filename = pr_file.filename
@@ -154,6 +171,7 @@ def analyze_pr(
         changed_ranges = parse_staged_new_ranges(patch)
 
         elements = extract_code_elements(path_obj, content)
+        total_elements_in_files += len(elements)
 
         for element in elements:
             # Newly added files: include all elements (no existing content to diff)
@@ -164,11 +182,19 @@ def analyze_pr(
             ):
                 candidates.append((filename, element))
 
+    extract_ms = (time.monotonic() - t_extract) * 1000
+
     if not candidates:
         log.info(
             "[bot] No queryable code elements found in PR %s/%s#%d", owner, repo, pr_number
         )
-        return AnalysisResult(findings=[])
+        total_ms = (time.monotonic() - t_total) * 1000
+        return AnalysisResult(
+            findings=[],
+            timings=AnalysisTimings(extract_ms=extract_ms, total_ms=total_ms),
+            total_elements_in_files=total_elements_in_files,
+            candidates_after_filter=0,
+        )
 
     # Cap total elements to protect against huge PRs
     truncated = len(candidates) > cfg.max_elements_per_pr
@@ -183,6 +209,8 @@ def analyze_pr(
         )
         candidates = candidates[: cfg.max_elements_per_pr]
 
+    candidates_after_filter = len(candidates)
+
     # ------------------------------------------------------------------ #
     # Step 2 – embed all elements in one batch
     # ------------------------------------------------------------------ #
@@ -194,14 +222,11 @@ def analyze_pr(
     index_cfg_pub = load_embedding_config(ctx.db_path, "public")
     configs = [c for c in [index_cfg_priv, index_cfg_pub] if c is not None]
 
-    resolved_max_chars = None
-    resolved_long_text_mode = None
+    resolved_truncate = None
     if len(configs) == 1:
-        resolved_max_chars = configs[0].get("max_chars")
-        resolved_long_text_mode = configs[0].get("long_text_mode")
+        resolved_truncate = configs[0].get("truncate_tokens")
     elif len(configs) == 2 and configs[0] == configs[1]:
-        resolved_max_chars = configs[0].get("max_chars")
-        resolved_long_text_mode = configs[0].get("long_text_mode")
+        resolved_truncate = configs[0].get("truncate_tokens")
     elif len(configs) == 2:
         log.warning(
             "[bot] Private and public indexes have different embedding configs: "
@@ -209,17 +234,20 @@ def analyze_pr(
             index_cfg_priv, index_cfg_pub,
         )
 
-    embedder = EmbeddingClient(max_chars=resolved_max_chars, long_text_mode=resolved_long_text_mode)
+    embedder = EmbeddingClient(truncate_tokens=resolved_truncate)
     labels = [f"{rel}:{el['name']}" for rel, el in candidates]
 
+    t_embed = time.monotonic()
     vectors = embedder.embed_documents(
         [el["text"] for _, el in candidates],
         labels=labels,
     )
+    embed_ms = (time.monotonic() - t_embed) * 1000
 
     # ------------------------------------------------------------------ #
     # Step 3 – query ChromaDB and collect hits
     # ------------------------------------------------------------------ #
+    t_query = time.monotonic()
     store = CodeVectorStore(
         path=str(ctx.db_path),
         private_collection_name=ctx.private_collection_name,
@@ -243,6 +271,7 @@ def analyze_pr(
                 query_rel=rel_path,
                 query_hash=element["hash"],
                 include_hit=_include_public_hit,
+                min_lines=cfg.min_lines,
             )
 
         if cfg.check_private:
@@ -256,6 +285,7 @@ def analyze_pr(
                 query_rel=rel_path,
                 query_hash=element["hash"],
                 include_hit=private_hit_filter,
+                min_lines=cfg.min_lines,
             )
 
         findings.append(
@@ -267,12 +297,30 @@ def analyze_pr(
             )
         )
 
+    query_ms = (time.monotonic() - t_query) * 1000
+    total_ms = (time.monotonic() - t_total) * 1000
+
+    timings = AnalysisTimings(
+        extract_ms=round(extract_ms, 1),
+        embed_ms=round(embed_ms, 1),
+        query_ms=round(query_ms, 1),
+        total_ms=round(total_ms, 1),
+    )
+    log.info(
+        "[bot] Timings for PR %s/%s#%d: extract=%.0fms embed=%.0fms query=%.0fms total=%.0fms "
+        "(elements: %d in files, %d after filter)",
+        owner, repo, pr_number,
+        timings.extract_ms, timings.embed_ms, timings.query_ms, timings.total_ms,
+        total_elements_in_files, candidates_after_filter,
+    )
+
     return AnalysisResult(
         findings=findings,
         embedding_config={
-            "max_chars": embedder.max_chars,
-            "long_text_mode": embedder.long_text_mode,
-            "chunk_overlap": embedder.chunk_overlap,
+            "truncate_tokens": embedder.truncate_tokens,
             "model": embedder.model,
         },
+        timings=timings,
+        total_elements_in_files=total_elements_in_files,
+        candidates_after_filter=candidates_after_filter,
     )
