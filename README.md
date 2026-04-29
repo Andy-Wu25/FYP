@@ -167,4 +167,4 @@ The pytest suite covers the parser fallback, the source filter, the staged-hunk 
 
 ## Project Status
 
-This project was developed as the final-year project for an MEng Computer Science degree at UCL. It is functional and tested but not maintained as a production product; bug reports and patches are welcome via the GitHub issue tracker.
+This project was developed as the final-year project for an MEng Computer Science degree at UCL.
