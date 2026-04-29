@@ -1,6 +1,6 @@
 # Code Similarity Tool
 
-A semantic code similarity detector that compares the code in your working change against two corpora — a **private** organisation index of your team's own repositories, and a **public** index of open-source repositories you have explicitly loaded — and reports nearest-neighbour matches by cosine distance over Tree-sitter-parsed declaration embeddings.
+A semantic code similarity detector that compares the code in your working change against two corpora: a **private** organisation index of your team's own repositories, and a **public** index of open-source repositories you have explicitly loaded. We report nearest-neighbour matches by cosine distance over Tree-sitter-parsed declaration embeddings.
 
 It runs as a CLI for day-to-day developer use, as a Git hook for automatic checks before commit or push, and as a FastAPI webhook server that posts findings as review comments on GitHub pull requests.
 
