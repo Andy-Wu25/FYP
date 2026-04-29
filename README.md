@@ -21,8 +21,8 @@ Code review can catch obvious copy-paste duplication, but it cannot reasonably d
 ## Quick Start
 
 ```bash
-git clone https://github.com/Andy-Wu25/FYP.git
-cd FYP
+git clone https://github.com/Andy-Wu25/FYP-Code-Similarity.git
+cd FYP-Code-Similarity
 python3.11 -m venv venv && source venv/bin/activate
 pip install -e .
 
