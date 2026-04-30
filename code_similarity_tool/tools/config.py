@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..core.runtime import find_repo_root, load_runtime_context
+from ..core.runtime import default_db_path, find_repo_root, load_runtime_context
 from .snapshot import _default_snapshots_dir
 
 
@@ -50,7 +50,7 @@ def main() -> None:
         repo_id = "?"
         db_path = os.getenv(
             "CODE_SIM_DB_PATH",
-            "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+            str(default_db_path(Path(repo_root))),
         )
         priv_coll = os.getenv("CODE_SIM_PRIVATE_COLLECTION", "project_code_private")
         pub_coll = os.getenv("CODE_SIM_PUBLIC_COLLECTION", "project_code_public")
@@ -78,7 +78,7 @@ def main() -> None:
     _, org_from_env = _val("CODE_SIM_ORG_ID", "my-org")
     _, db_from_env = _val(
         "CODE_SIM_DB_PATH",
-        "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+        str(default_db_path(Path(repo_root))),
     )
     _, metric_from_env = _val("CODE_SIM_METRIC", "cosine")
 

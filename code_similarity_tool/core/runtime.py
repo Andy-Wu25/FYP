@@ -12,6 +12,7 @@ from .language_detection import has_language_hint, is_probably_binary
 from .source_filtering import is_noise_source_path
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
+DEFAULT_DB_RELATIVE_PATH = Path("code_similarity_tool") / ".code-sim" / "shared-db"
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,10 @@ def _default_repo_id(repo_root: Path) -> str:
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()
 
 
+def default_db_path(repo_root: Path) -> Path:
+    return (repo_root / DEFAULT_DB_RELATIVE_PATH).resolve()
+
+
 def load_runtime_context(start: Optional[Path] = None) -> RuntimeContext:
     repo_root = find_repo_root(start)
 
@@ -76,7 +81,7 @@ def load_runtime_context(start: Optional[Path] = None) -> RuntimeContext:
     db_path = Path(
         os.getenv(
             "CODE_SIM_DB_PATH",
-            "/Users/andywu/Documents/FYP/code_similarity_tool/.code-sim/shared-db",
+            str(default_db_path(repo_root)),
         )
     ).expanduser().resolve()
 

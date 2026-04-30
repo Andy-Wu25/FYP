@@ -1,0 +1,14 @@
+/.coverage export-ignore
+/.claude export-ignore
+/.DS_Store export-ignore
+/.pytest_cache export-ignore
+/__pycache__ export-ignore
+/build export-ignore
+/dist export-ignore
+/venv export-ignore
+/.venv export-ignore
+/code_similarity_tool.egg-info export-ignore
+/code_similarity_tool/.code-sim export-ignore
+/code_similarity_tool/.git export-ignore
+**/__pycache__ export-ignore
+**/*.pyc export-ignore

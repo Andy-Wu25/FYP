@@ -17,6 +17,7 @@ def _make_client(
         "CODE_SIM_EMBEDDINGS_BACKEND": "vllm",
         "VLLM_VERIFY_MODELS": "0",
         "VLLM_INPUT_PREFIX": input_prefix,
+        "VLLM_BATCH_SIZE": "64",
     }
     with patch.dict(os.environ, env, clear=False):
         return EmbeddingClient()
